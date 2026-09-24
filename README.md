@@ -5,7 +5,44 @@ This repo provides an implementation of the following incremental learning algor
 - Incremental One-Step Actor-Critic (IAC)
 - Incremental Soft Actor Critic (SAC-1)
 
+## Setup Instructions:
+This project has been modified to make use of [UV's dependency management tooling](https://docs.astral.sh/uv/). 
 
+1. Ensure you have UV installed and setup correctly by following their **[startup guide](https://docs.astral.sh/uv/getting-started/).**
+2. Once UV is installed, install all of the dependencies by using this command in the project folder: 
+```bash
+uv sync
+```
+3. Done! All of the dependencies should be installed automatically. 
+
+### Adding new packages/dependencies:
+To add new dependencies, you must run this command:
+```bash
+uv add <package_name>
+```
+
+### Activating the virtual environment
+After running `uv sync` or adding a dependency, activate the generated `.venv` before running the project.
+
+On Windows PowerShell:
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+On Windows Command Prompt:
+```bat
+.venv\Scripts\activate.bat
+```
+
+On macOS or Linux:
+```bash
+source .venv/bin/activate
+```
+
+Your terminal prompt should begin with `(cf-avg) or (.venv)`.
+
+
+## Running the Simulation: 
 ```python
 python avg.py --env "Humanoid-v4" --N 10001000
 ```
