@@ -1,5 +1,5 @@
 import torch
-import time, argparse
+import os, time, argparse, bisect
 import wandb, traceback
 
 import numpy as np
@@ -10,7 +10,7 @@ from incremental_rl.logger import Logger
 from incremental_rl.SAC.mlp_policies import SquashedGaussianMLPActor, DoubleQ
 from incremental_rl.SAC.rad_buffer import SACReplayBuffer
 from incremental_rl.experiment_tracker import ExperimentTracker
-from incremental_rl.utils import set_one_thread
+from incremental_rl.utils import set_one_thread, save_learning_curve, save_loss_curve
 
 
 class SAC:
@@ -219,6 +219,52 @@ class SACAgent(SAC):
             action, action_info = self.actor(obs, rp=True)
             return action.cpu(), action_info  
 
+    def save_checkpoint(self, path, **meta):
+        rb = self._replay_buffer
+        n = rb.size
+        state = {
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "critic_target": self.critic_target.state_dict(),
+            "log_alpha": self.log_alpha.detach().item(),
+            "actor_opt": self.actor_optimizer.state_dict(),
+            "critic_opt": self.critic_optimizer.state_dict(),
+            "log_alpha_opt": self.log_alpha_optimizer.state_dict(),
+            "steps": self.steps,
+            "num_updates": self.num_updates,
+            "meta": meta,
+            "rb": {
+                "observations": rb.observations[:n],
+                "next_observations": rb.next_observations[:n],
+                "actions": rb.actions[:n],
+                "rewards": rb.rewards[:n],
+                "dones": rb.dones[:n],
+                "ptr": n,
+                "size": n,
+            },
+        }
+        torch.save(state, path + ".tmp")
+        os.replace(path + ".tmp", path)
+
+    def load_checkpoint(self, path):
+        state = torch.load(path, map_location=self.device, weights_only=False)
+        self.actor.load_state_dict(state["actor"])
+        self.critic.load_state_dict(state["critic"])
+        self.critic_target.load_state_dict(state["critic_target"])
+        self.log_alpha.data.copy_(torch.tensor(state["log_alpha"]).to(self.device))
+        self.actor_optimizer.load_state_dict(state["actor_opt"])
+        self.critic_optimizer.load_state_dict(state["critic_opt"])
+        self.log_alpha_optimizer.load_state_dict(state["log_alpha_opt"])
+        self.steps = int(state["steps"])
+        self.num_updates = int(state["num_updates"])
+        rb = self._replay_buffer
+        n = state["rb"]["size"]
+        for field in ("observations", "next_observations", "actions", "rewards", "dones"):
+            getattr(rb, field)[:n] = state["rb"][field]
+        rb.ptr = n
+        rb.size = n
+        return state.get("meta", {})  
+
 
 def main(args):
     tic = time.time()
@@ -253,17 +299,64 @@ def main(args):
     terminated, truncated = False, False
     obs, _ = env.reset()
     ep_tic = time.time()
+    dynamics_schedule = sorted(
+        (int(s), float(v)) for s, v in
+        (tok.split(':') for tok in args.dynamics_schedule.split(',') if tok.strip())
+    )
+    sched_i = 0
+    loss_rows = []
+    loss_stride = max(1, args.N // 10000)
+
+    # Restore from a checkpoint if arg is provided in CLI (Resume training)
+    start_t = 0
+    if args.load_model:
+        meta = agent.load_checkpoint(args.load_model)
+        rets = meta.get('rets', [])
+        ep_steps = meta.get('ep_steps', [])
+        loss_rows = meta.get('loss_rows', [])
+        i_episode = int(meta.get('i_episode', 0))
+        ret = float(meta.get('ret', 0))
+        step = int(meta.get('step', 0))
+        start_t = int(meta.get('t', 0)) + 1
+        sched_i = bisect.bisect_right([s for s, _ in dynamics_schedule], start_t - 1) if start_t else 0
+        print("Resuming from step {} via {} (episodes so far: {})".format(start_t, args.load_model, len(rets)))
+
+    ckpt_path = os.path.join(args.results_dir, f"{expt.run_id}_checkpoint.pt")
+    def save_ckpt():
+        agent.save_checkpoint(
+            ckpt_path,
+            t=t, rets=rets, ep_steps=ep_steps, loss_rows=loss_rows,
+            i_episode=i_episode, ret=ret, step=step,
+        )
+        print(f"[step {t+1}] checkpoint autosaved to {ckpt_path}", flush=True)
+
     try:
-        for t in range(args.N):
+        for t in range(start_t, args.N):
+            # Autosave for resume (covers "program stops / crash / paused run")
+            if args.save_model and t % args.checkpoint == 0:
+                save_ckpt()
+
             # N.B: Action is a torch.Tensor
             action, action_info = agent.compute_action(obs)                
             sim_action = action.detach().cpu().view(-1).numpy()
 
             # Receive reward and next state
             next_obs, reward, terminated, truncated, _ = env.step(sim_action)
-           
+
+            # dynamic changes (mid-training friction)
+            if sched_i < len(dynamics_schedule) and t >= dynamics_schedule[sched_i][0]:
+                env.unwrapped.model.geom_friction[0, 0] = dynamics_schedule[sched_i][1]
+                print(f"[step {t}] ground sliding friction -> {dynamics_schedule[sched_i][1]}")
+                sched_i += 1
+            
             # Dump training metrics to logger
-            stat = agent.update(obs, action, next_obs, reward, terminated, **action_info)                
+            stat = agent.update(obs, action, next_obs, reward, terminated, **action_info)
+
+            # Collect losses for plots
+            if stat and (t % loss_stride == 0):
+                loss_rows.append((t, stat['train/actor_loss'], stat['train/critic_loss'],
+                                  stat['train/ent_loss'], stat['train/entropy'], stat['train/ent_alpha']))
+
             if args.debug:
                 if stat is not None:
                     for k, v in stat.items():
@@ -301,6 +394,12 @@ def main(args):
         print(e)
         print("Exiting this run, storing partial logs in the database for future debugging...")
         traceback.print_exc()
+        if args.save_model:
+            try:
+                save_ckpt()
+                print("Checkpoint saved before exiting - rerun with --load_model to resume.")
+            except Exception:
+                pass
 
     if not (terminated or truncated):
         # N.B: We're adding a partial episode just to make plotting easier. But this data point shouldn't be used
@@ -315,7 +414,17 @@ def main(args):
         expt.dump(t, rets, ep_steps, stat)
         
     if args.save_model:
-        agent.save()
+        save_ckpt()
+
+    # Plot learning curves (returns + losses) 
+    flip_steps = [s for s, _ in dynamics_schedule]
+    if len(rets) > 0:
+        save_learning_curve(rets, ep_steps, flip_steps,
+                            f"{args.results_dir}/{expt.run_id}_learning_curve.png")
+    if loss_rows:
+        save_loss_curve(loss_rows, flip_steps,
+                        f"{args.results_dir}/{expt.run_id}_loss_curve.png")
+    print("Saved plots to {}".format(args.results_dir))
 
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time()-tic))
     wandb.finish()
@@ -344,6 +453,7 @@ if __name__ == "__main__":
     parser.add_argument('--update_every', default=1, type=int)
     parser.add_argument('--update_critic_target_every', default=1, type=int)
     parser.add_argument('--update_epochs', default=1, type=int)
+    parser.add_argument('--dynamics_schedule', default="", type=str, help='comma-separated "step:friction" pairs, e.g. "4000000:2.0,6000000:1.0,8000000:2.0"')
     # MLP params
     parser.add_argument('--actor_hidden_sizes', default="256,256", type=str)
     parser.add_argument('--critic_hidden_sizes', default="256,256", type=str)

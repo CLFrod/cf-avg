@@ -3,6 +3,8 @@ import os, json, subprocess
 
 import numpy as np
 import torch.nn as nn
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
@@ -128,6 +130,50 @@ def smoothed_curve(returns, ep_lens, x_tick=5000, window_len=5000):
                 x.append((i+1) * x_tick)
 
     return np.array(rets), np.array(x)
+
+
+def save_learning_curve(rets, ep_lens, flip_steps, save_path):
+    """ Plot episodic returns vs cumulative env steps """
+    ep_cum = np.cumsum(ep_lens)
+    plt.figure(figsize=(10, 6))
+    plt.plot(ep_cum, rets)
+    plt.xlabel("Env steps")
+    plt.ylabel("Return")
+    for s in flip_steps:
+        plt.axvline(s, color='r', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+
+
+def save_loss_curve(loss_rows, flip_steps, save_path):
+    """ Plot actor/critic loss vs env steps, optional schedule flip markers.
+
+    Args:
+        loss_rows (list): (step, actor_loss, critic_loss, ent_loss, entropy, ent_alpha) tuples
+    """
+    steps = [r[0] for r in loss_rows]
+    actor = [r[1] for r in loss_rows]
+    critic = [r[2] for r in loss_rows]
+    entropy = [r[4] for r in loss_rows]
+    alpha = [r[5] for r in loss_rows]
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    axes[0].plot(steps, actor, label='actor_loss')
+    axes[0].plot(steps, critic, label='critic_loss')
+    axes[0].set_ylabel('Loss')
+    axes[0].legend()
+    axes[1].plot(steps, entropy, label='entropy')
+    axes[1].plot(steps, alpha, label='ent_alpha')
+    axes[1].set_ylabel('Entropy / alpha')
+    axes[1].set_xlabel('Env steps')
+    axes[1].legend()
+    for s in flip_steps:
+        axes[0].axvline(s, color='r', linestyle='--', alpha=0.6)
+        axes[1].axvline(s, color='r', linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
 
 
 def learning_curve(rets, ep_lens, save_path, x_tick=10000, window_len=10000):

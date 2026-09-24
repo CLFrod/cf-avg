@@ -1,15 +1,26 @@
+[build-system]
+requires = ["setuptools>=84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["incremental_rl*"]
+
 [project]
 name = "cf-avg"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "setuptools>=84.0.0",
     "torch>=2.6.0",
     "torchvision>=0.21.0",
     "torchaudio>=2.6.0",
-    "gymnasium>=1.3.0",
+    "gymnasium[mujoco]>=1.3.0",
+    "dm_control",
+    "dm_env",
+    "numpy",
+    "tqdm",
     "matplotlib>=3.11.2",
     "wandb>=0.30.0",
     "termcolor>=3.3.0",
