@@ -12,7 +12,7 @@ class ExperimentTracker:
         self.args.git_hash = get_git_hash()
         #### Unique IDs
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"-{args.algo}-{args.env}_seed-{args.seed}"
-        self.lc_path = f"{args.results_dir}/{self.run_id}_learning_curve.png"
+        self.lc_path = f"{args.results_dir}/{self.run_id}_learning_curve_smoothed.png"
         self.rets_path = f"{args.results_dir}/{self.run_id}_returns.txt"
         self.args_path = f"{args.results_dir}/{self.run_id}_args.json"
         self.metrics_path = f"{args.results_dir}/{self.run_id}_metrics.json"
