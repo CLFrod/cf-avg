@@ -159,14 +159,14 @@ class AVG:
 
         self.popt.zero_grad()
         ploss.backward()                 
-        actor_grad_norm = np.sqrt(sum([torch.norm(p.grad)**2 for p in self.actor.parameters()]))
-        actor_weight_norm = np.sqrt(sum([torch.norm(p.data)**2 for p in self.actor.parameters()]))
+        actor_grad_norm = torch.sqrt(sum([torch.norm(p.grad)**2 for p in self.actor.parameters()]))
+        actor_weight_norm = torch.sqrt(sum([torch.norm(p.data)**2 for p in self.actor.parameters()]))
         self.popt.step()
 
         self.qopt.zero_grad()
         qloss.backward()
-        critic_grad_norm = np.sqrt(sum([torch.norm(p.grad)**2 for p in self.Q.parameters()]))
-        critic_weight_norm = np.sqrt(sum([torch.norm(p.data)**2 for p in self.Q.parameters()]))
+        critic_grad_norm = torch.sqrt(sum([torch.norm(p.grad)**2 for p in self.Q.parameters()]))
+        critic_weight_norm = torch.sqrt(sum([torch.norm(p.data)**2 for p in self.Q.parameters()]))
         self.qopt.step()
 
         self.steps += 1
@@ -205,7 +205,7 @@ def main(args):
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
     # Env
-    env = gym.make(args.env)
+    env = gym.make(args.env, render_mode = "rgb_array", width=640, height=480)
     env = gym.wrappers.FlattenObservation(env)
     if args.normalize_obs:
         env = NormalizeObservation(env)
@@ -282,7 +282,7 @@ def main(args):
         print(e)
         print("Exiting this run, storing partial logs in the database for future debugging...")
         traceback.print_exc()
-
+    
     if not (terminated or truncated):
         # N.B: We're adding a partial episode just to make plotting easier. But this data point shouldn't be used
         print("Appending partial episode #{}, length: {}, Total Steps: {}".format(i_episode+1, step, t+1))
@@ -293,6 +293,10 @@ def main(args):
     
     # Save returns and args before exiting run
     expt.dump(t, rets, ep_steps, stat)
+
+    if not args.do_not_save and rets:
+        expt.learning_curve(rets=rets, ep_lens=ep_steps)
+
     if args.save_model:
         agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model")
 
@@ -336,7 +340,8 @@ if __name__ == "__main__":
     # Abaltions args
     parser.add_argument('--normalize_obs', action='store_true', default=False)    
     parser.add_argument('--pnorm', action='store_true', default=False)
-    parser.add_argument('--scaled_td', action='store_true', default=False)    
+    parser.add_argument('--scaled_td', action='store_true', default=False)
+    parser.add_argument("--n_eval", default=0, type=int, help="Number of evaluation episodes to record")
     args = parser.parse_args()
     
     # Adam 
@@ -345,8 +350,10 @@ if __name__ == "__main__":
     # CPU/GPU use for the run
     if torch.cuda.is_available() and "cuda" in args.device:
         args.device = torch.device(args.device)
+        print("Using CUDA GPU")
     else:
         args.device = torch.device("cpu")    
+        print("Using CPU")
 
     if not (args.normalize_obs or args.pnorm or args.scaled_td):
         args.algo = "avg_basic"

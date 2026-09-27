@@ -4,6 +4,7 @@ import time, json
 import numpy as np
 from datetime import datetime
 from incremental_rl.utils import learning_curve, save_args, save_returns, get_git_hash
+from gymnasium import Env
 
 
 class ExperimentTracker:
@@ -50,7 +51,7 @@ class ExperimentTracker:
 
 
 # Function to record video
-def record_video(env, policy, num_episodes=10, video_filename='video.mp4'):
+def record_video(env: Env, policy, num_episodes=10, video_filename='video.mp4'):
     # Define video codec and create VideoWriter object
     print(video_filename)
     video = cv2.VideoWriter(video_filename, cv2.VideoWriter_fourcc(*'mp4v'), 30.0, (640, 480))
@@ -68,7 +69,7 @@ def record_video(env, policy, num_episodes=10, video_filename='video.mp4'):
             next_obs, reward, terminated, truncated, _ = env.step(sim_action)
 
             # Render the environment
-            img = env.physics.render(width=640, height=480)
+            img = env.render()
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             step += 1
 
@@ -77,7 +78,7 @@ def record_video(env, policy, num_episodes=10, video_filename='video.mp4'):
         
         # Pause in last frame for 300ms
         for _ in range(10):
-            video.write(np.zeros((640, 480, 3), dtype=np.uint8))  # Write the frame to video
+            video.write(np.zeros((480, 640, 3), dtype=np.uint8))  # Write the frame to video
         print("Episode {} rendering complete, Time taken: {:.2f}".format(
             episode+1, time.time() - tic))
 
