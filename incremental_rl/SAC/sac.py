@@ -9,7 +9,7 @@ from copy import deepcopy
 from incremental_rl.logger import Logger
 from incremental_rl.SAC.mlp_policies import SquashedGaussianMLPActor, DoubleQ
 from incremental_rl.SAC.rad_buffer import SACReplayBuffer
-from incremental_rl.experiment_tracker import ExperimentTracker
+from incremental_rl.experiment_tracker import ExperimentTracker, record_video
 from incremental_rl.utils import set_one_thread, save_learning_curve, save_loss_curve
 
 
@@ -261,7 +261,7 @@ class SACAgent(SAC):
         n = state["rb"]["size"]
         for field in ("observations", "next_observations", "actions", "rewards", "dones"):
             getattr(rb, field)[:n] = state["rb"][field]
-        rb.ptr = n
+        rb.ptr = n % rb.max_size
         rb.size = n
         return state.get("meta", {})  
 
@@ -269,7 +269,13 @@ class SACAgent(SAC):
 def main(args):
     tic = time.time()
 
-    expt = ExperimentTracker(args)
+    dynamics_schedule = sorted(
+        (int(s), float(v)) for s, v in
+        (tok.split(':') for tok in args.dynamics_schedule.split(',') if tok.strip())
+    )
+    sched_i = 0
+
+    expt = ExperimentTracker(args, flip_steps=[s for s, _ in dynamics_schedule])
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
     # Env
@@ -297,13 +303,9 @@ def main(args):
     rets, ep_steps = [], []
     i_episode, ret, step, ep_entropy, ep_mod_action = 0, 0, 0, 0, 0
     terminated, truncated = False, False
+    stat = {}
     obs, _ = env.reset()
     ep_tic = time.time()
-    dynamics_schedule = sorted(
-        (int(s), float(v)) for s, v in
-        (tok.split(':') for tok in args.dynamics_schedule.split(',') if tok.strip())
-    )
-    sched_i = 0
     loss_rows = []
     loss_stride = max(1, args.N // 10000)
 
@@ -319,6 +321,14 @@ def main(args):
         step = int(meta.get('step', 0))
         start_t = int(meta.get('t', 0)) + 1
         sched_i = bisect.bisect_right([s for s, _ in dynamics_schedule], start_t - 1) if start_t else 0
+        # Re-apply the mid-training physics (friction) that the checkpoint was saved under.
+        # Prefer the explicit value stored in meta; fall back to the schedule's last committed entry.
+        friction = meta.get('friction')
+        if friction is None and sched_i > 0:
+            friction = dynamics_schedule[sched_i - 1][1]
+        if friction is not None:
+            env.unwrapped.model.geom_friction[0, 0] = float(friction)
+            print(f"[resume] ground sliding friction -> {friction}", flush=True)
         print("Resuming from step {} via {} (episodes so far: {})".format(start_t, args.load_model, len(rets)))
 
     ckpt_path = os.path.join(args.results_dir, f"{expt.run_id}_checkpoint.pt")
@@ -327,6 +337,7 @@ def main(args):
             ckpt_path,
             t=t, rets=rets, ep_steps=ep_steps, loss_rows=loss_rows,
             i_episode=i_episode, ret=ret, step=step,
+            friction=float(env.unwrapped.model.geom_friction[0, 0]),
         )
         print(f"[step {t+1}] checkpoint autosaved to {ckpt_path}", flush=True)
 
@@ -428,6 +439,12 @@ def main(args):
 
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time()-tic))
     wandb.finish()
+
+    # Eval
+    if args.n_eval:
+        fname = f"{args.results_dir}/{expt.run_id}.mp4"
+        record_video(env, agent, num_episodes=args.n_eval, video_filename=fname)
+
     return ep_steps, rets
 
 if __name__ == "__main__":
@@ -468,6 +485,7 @@ if __name__ == "__main__":
     parser.add_argument('--description', default='', type=str)
     parser.add_argument('--wandb_mode', default='disabled', type=str, help="Either online, offline, or disabled")
     parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--n_eval', default=0, type=int, help="Number of evaluation episodes to record")
     args = parser.parse_args()
     
     # Adam 

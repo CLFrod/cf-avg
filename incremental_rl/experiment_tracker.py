@@ -8,9 +8,10 @@ from gymnasium import Env
 
 
 class ExperimentTracker:
-    def __init__(self, args):
+    def __init__(self, args, flip_steps=()):
         self.args = args
         self.args.git_hash = get_git_hash()
+        self.flip_steps = list(flip_steps)
         #### Unique IDs
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"-{args.algo}-{args.env}_seed-{args.seed}"
         self.lc_path = f"{args.results_dir}/{self.run_id}_learning_curve_smoothed.png"
@@ -31,7 +32,7 @@ class ExperimentTracker:
 
     def learning_curve(self, rets, ep_lens):
         save_returns(ep_lens=ep_lens, rets=rets, save_path=self.rets_path)
-        learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path)
+        learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path, flip_steps=self.flip_steps)
 
     def log_episode_metrics(self, stats):
         log_string = json.dumps(stats)
@@ -46,7 +47,7 @@ class ExperimentTracker:
 
         if step - self.step_on_save >= self.args.checkpoint:
             save_returns(ep_lens=ep_lens, rets=rets, save_path=self.rets_path)
-            learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path)
+            learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path, flip_steps=self.flip_steps)
             self.step_on_save = step
 
 

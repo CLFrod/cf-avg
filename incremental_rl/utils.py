@@ -176,12 +176,14 @@ def save_loss_curve(loss_rows, flip_steps, save_path):
     plt.close()
 
 
-def learning_curve(rets, ep_lens, save_path, x_tick=10000, window_len=10000):
+def learning_curve(rets, ep_lens, save_path, x_tick=10000, window_len=10000, flip_steps=()):
     if len(rets) > 0:
         plot_rets, plot_x = smoothed_curve(np.array(rets), np.array(ep_lens), x_tick=x_tick, window_len=window_len)
         if len(plot_rets):
             plt.clf()
             plt.plot(plot_x, plot_rets)
+            for s in flip_steps:
+                plt.axvline(s, color='r', linestyle='--', alpha=0.6)
             plt.pause(0.001)
             plt.savefig(save_path, dpi=200)
             
