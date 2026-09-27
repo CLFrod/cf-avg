@@ -273,7 +273,7 @@ def main(args):
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
     # Env
-    env = gym.make(args.env)
+    env = gym.make(args.env, render_mode = "rgb_array", width=640, height=480)
 
     #### Reproducibility
     env.reset(seed=args.seed)
