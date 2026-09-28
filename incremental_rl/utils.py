@@ -136,6 +136,8 @@ def learning_curve(rets, ep_lens, save_path, x_tick=10000, window_len=10000):
         if len(plot_rets):
             plt.clf()
             plt.plot(plot_x, plot_rets)
+            for checkpoint in range(3000000, int(plot_x[-1]) + 1, 3000000):
+                plt.axvline(checkpoint, color="orange", linestyle="--", alpha=0.6)
             plt.pause(0.001)
             plt.savefig(save_path, dpi=200)
             

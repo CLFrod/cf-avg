@@ -5,6 +5,7 @@ import time, wandb
 import numpy as np
 import torch.nn as nn
 import gymnasium as gym
+from gymnasium import Env
 import torch.nn.functional as F
 
 from torch.distributions import MultivariateNormal
@@ -206,6 +207,23 @@ def main(args):
 
     # Env
     env = gym.make(args.env, render_mode = "rgb_array", width=640, height=480)
+    model = env.unwrapped.model
+    #print(f"Friction Default: {model.geom_friction}")
+    #print(f"Inertia Default: {model.body_inertia}")
+    #print(f"Mass Default Default: {model.body_mass}")
+    #print(f"Actuator Gear Default: {model.actuator_gear}")
+    #print(f"Actuator Gain Default: {model.actuator_gainprm}")
+    #print(f"Joint Damping Default: {model.dof_damping}")
+    #print(f"Gravity Default: {model.opt.gravity}")
+    #
+    #print(f"Friction Default: {len(model.geom_friction)}")
+    #print(f"Inertia Default: {len(model.body_inertia)}")
+    #print(f"Mass Default Default: {len(model.body_mass)}")
+    #print(f"Actuator Gear Default: {len(model.actuator_gear)}")
+    #print(f"Actuator Gain Default: {len(model.actuator_gainprm)}")
+    #print(f"Joint Damping Default: {len(model.dof_damping)}")
+    #print(f"Gravity Default: {len(model.opt.gravity)}")
+    
     env = gym.wrappers.FlattenObservation(env)
     if args.normalize_obs:
         env = NormalizeObservation(env)
@@ -238,6 +256,15 @@ def main(args):
     ep_tic = time.time()    
     try:
         for t in range(args.N):
+            if t == 3000000:
+                # moon gravity:
+                model.opt.gravity[-1] = -1.62
+            elif t == 6000000:
+                # mars gravity:
+                model.opt.gravity[-1] = -3.71
+            elif t == 9000000:
+                # k2-18b gravity (estimate)
+                model.opt.gravity[-1] = -11.95
             # N.B: Action is a torch.Tensor
             action, action_info = agent.compute_action(obs)                
             sim_action = action.detach().cpu().view(-1).numpy()
