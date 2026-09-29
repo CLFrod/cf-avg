@@ -1,6 +1,7 @@
 import torch
 import os, cv2
 import time, json
+import shutil, subprocess
 import numpy as np
 from datetime import datetime
 from incremental_rl.utils import learning_curve, save_args, save_returns, get_git_hash
@@ -52,10 +53,34 @@ class ExperimentTracker:
 
 
 # Function to record video
+def _open_video_writer(path):
+    for fourcc in ('avc1', 'mp4v'):
+        writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*fourcc), 30.0, (640, 480))
+        if writer.isOpened():
+            return writer, fourcc
+        writer.release()
+    raise RuntimeError("Could not open a video writer for {}".format(path))
+
+
+def _transcode_to_h264(path):
+    if shutil.which('ffmpeg') is None:
+        print("WARNING: mp4v video written but ffmpeg not found to transcode to H.264: {}".format(path))
+        return
+    tmp = path + '.h264.mp4'
+    cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-i', path,
+           '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
+           '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', tmp]
+    try:
+        subprocess.run(cmd, check=True)
+    except Exception as e:
+        raise RuntimeError("ffmpeg transcode failed for {}: {}".format(path, e))
+    os.replace(tmp, path)
+
+
 def record_video(env: Env, policy, num_episodes=10, video_filename='video.mp4'):
     # Define video codec and create VideoWriter object
     print(video_filename)
-    video = cv2.VideoWriter(video_filename, cv2.VideoWriter_fourcc(*'mp4v'), 30.0, (640, 480))
+    video, codec = _open_video_writer(video_filename)
 
     for episode in range(num_episodes):
         obs, _ = env.reset()
@@ -84,3 +109,5 @@ def record_video(env: Env, policy, num_episodes=10, video_filename='video.mp4'):
             episode+1, time.time() - tic))
 
     video.release()  # Release the video writer
+    if codec != 'avc1':
+        _transcode_to_h264(video_filename)
