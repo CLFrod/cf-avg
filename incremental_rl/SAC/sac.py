@@ -4,6 +4,7 @@ import wandb, traceback
 
 import numpy as np
 import gymnasium as gym
+import mujoco
 
 from copy import deepcopy
 from incremental_rl.logger import Logger
@@ -275,11 +276,61 @@ def main(args):
     )
     sched_i = 0
 
-    expt = ExperimentTracker(args, flip_steps=[s for s, _ in dynamics_schedule])
+    damping_schedule = sorted(
+        (int(s), float(v)) for s, v in
+        (tok.split(':') for tok in args.damping_schedule.split(',') if tok.strip())
+    )
+    damp_i = 0
+    damp_scale_v = 1.0
+
+    expt = ExperimentTracker(args, flip_steps=[s for s, _ in dynamics_schedule] + [s for s, _ in damping_schedule])
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
     # Env
     env = gym.make(args.env, render_mode = "rgb_array", width=640, height=480)
+    base_damping = env.unwrapped.model.dof_damping.copy()
+    damping_dofs = np.flatnonzero(base_damping != 0)
+
+    _m = env.unwrapped.model
+    joint_names = [mujoco.mj_id2name(_m, mujoco.mjtObj.mjOBJ_JOINT, j) for j in range(_m.njnt)]
+    joint_names = [n.decode() if isinstance(n, bytes) else (n or f"joint_{i}") for i, n in enumerate(joint_names)]
+    dof_jntid = _m.dof_jntid
+
+    def dof_to_name(d):
+        return joint_names[int(dof_jntid[d])]
+
+    damp_joints_v = None if args.damping_joints == 0 else []
+
+    def apply_damping():
+        env.unwrapped.model.dof_damping[:] = base_damping.copy()
+        if damp_joints_v is None:
+            env.unwrapped.model.dof_damping[:] = base_damping * damp_scale_v
+        elif len(damp_joints_v) > 0:
+            env.unwrapped.model.dof_damping[damp_joints_v] = base_damping[damp_joints_v] * damp_scale_v
+
+    damping_log_path = os.path.join(args.results_dir, f"{expt.run_id}_damping_changes.log")
+
+    def describe_damping_change():
+        cur = env.unwrapped.model.dof_damping
+        if damp_joints_v is None:
+            dofs = [d for d in damping_dofs]
+        else:
+            dofs = list(damp_joints_v)
+        return ", ".join(
+            f"{dof_to_name(int(d))} (dof {int(d)}): {base_damping[int(d)]:.4g} -> {cur[int(d)]:.4g}"
+            for d in dofs)
+
+    def log_damping_event(event, step):
+        detail = f"dof_damping x{damp_scale_v:g} on " + describe_damping_change()
+        line = f"[step {step}] {detail}"
+        print(f"[step {step}] {event}: {detail}", flush=True)
+        if not args.do_not_save:
+            try:
+                os.makedirs(args.results_dir, exist_ok=True)
+                with open(damping_log_path, "a") as f:
+                    f.write(line + "\n")
+            except Exception as e:
+                print(f"(warning: could not write damping log: {e})", flush=True)
 
     #### Reproducibility
     env.reset(seed=args.seed)
@@ -329,6 +380,21 @@ def main(args):
         if friction is not None:
             env.unwrapped.model.geom_friction[0, 0] = float(friction)
             print(f"[resume] ground sliding friction -> {friction}", flush=True)
+
+        # DAMPING RUN
+        damp_i = bisect.bisect_right([s for s, _ in damping_schedule], start_t - 1) if start_t else 0
+        if meta.get('damping_scale') is not None:
+            damp_scale_v = float(meta['damping_scale'])
+        elif damp_i > 0:
+            damp_scale_v = damping_schedule[damp_i - 1][1]
+        joints = meta.get('damping_joints')
+        if joints is None:
+            damp_joints_v = None if args.damping_joints == 0 else []
+        else:
+            damp_joints_v = list(joints)
+        apply_damping()
+        print(f"[resume] dof_damping scale -> {damp_scale_v}{' on joints ' + str(damp_joints_v) if damp_joints_v else ''}", flush=True)
+        log_damping_event("resume: restored damping", start_t - 1)
         print("Resuming from step {} via {} (episodes so far: {})".format(start_t, args.load_model, len(rets)))
 
     ckpt_path = os.path.join(args.results_dir, f"{expt.run_id}_checkpoint.pt")
@@ -338,6 +404,8 @@ def main(args):
             t=t, rets=rets, ep_steps=ep_steps, loss_rows=loss_rows,
             i_episode=i_episode, ret=ret, step=step,
             friction=float(env.unwrapped.model.geom_friction[0, 0]),
+            damping_scale=damp_scale_v,
+            damping_joints=damp_joints_v,
         )
         print(f"[step {t+1}] checkpoint autosaved to {ckpt_path}", flush=True)
 
@@ -359,6 +427,15 @@ def main(args):
                 env.unwrapped.model.geom_friction[0, 0] = dynamics_schedule[sched_i][1]
                 print(f"[step {t}] ground sliding friction -> {dynamics_schedule[sched_i][1]}")
                 sched_i += 1
+
+            if damp_i < len(damping_schedule) and t >= damping_schedule[damp_i][0]:
+                damp_scale_v = damping_schedule[damp_i][1]
+                if args.damping_joints > 0:
+                    damp_joints_v = np.random.choice(
+                        damping_dofs, size=min(args.damping_joints, damping_dofs.size), replace=False).tolist()
+                apply_damping()
+                log_damping_event("damping flip", t)
+                damp_i += 1
             
             # Dump training metrics to logger
             stat = agent.update(obs, action, next_obs, reward, terminated, **action_info)
@@ -422,13 +499,13 @@ def main(args):
     
     # Save returns and args before exiting run
     if args.debug:
-        expt.dump(t, rets, ep_steps, stat)
+        expt.dump(t, rets, ep_steps, stat, force=True)
         
     if args.save_model:
         save_ckpt()
 
     # Plot learning curves (returns + losses) 
-    flip_steps = [s for s, _ in dynamics_schedule]
+    flip_steps = [s for s, _ in dynamics_schedule] + [s for s, _ in damping_schedule]
     if len(rets) > 0:
         save_learning_curve(rets, ep_steps, flip_steps,
                             f"{args.results_dir}/{expt.run_id}_learning_curve.png")
@@ -471,6 +548,8 @@ if __name__ == "__main__":
     parser.add_argument('--update_critic_target_every', default=1, type=int)
     parser.add_argument('--update_epochs', default=1, type=int)
     parser.add_argument('--dynamics_schedule', default="", type=str, help='comma-separated "step:friction" pairs, e.g. "4000000:2.0,6000000:1.0,8000000:2.0"')
+    parser.add_argument('--damping_schedule', default="", type=str, help='comma-separated "step:scale" pairs; scale multiplies per-joint dof_damping defaults, e.g. "3000000:2.0,6000000:0.5,9000000:4.0"')
+    parser.add_argument('--damping_joints', default=0, type=int, help='number of random revolute joints to scale at each damping flip (0 = scale all joints)')
     # MLP params
     parser.add_argument('--actor_hidden_sizes', default="256,256", type=str)
     parser.add_argument('--critic_hidden_sizes', default="256,256", type=str)

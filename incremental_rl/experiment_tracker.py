@@ -40,13 +40,13 @@ class ExperimentTracker:
         with open(self.metrics_path, 'a') as f:
             f.write(log_string + '\n')
 
-    def dump(self, step, rets, ep_lens, stats):
+    def dump(self, step, rets, ep_lens, stats, force=False):
         if self.args.do_not_save:
             return
 
         self.log_episode_metrics(stats)
 
-        if step - self.step_on_save >= self.args.checkpoint:
+        if step - self.step_on_save >= self.args.checkpoint or force:
             save_returns(ep_lens=ep_lens, rets=rets, save_path=self.rets_path)
             learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path, flip_steps=self.flip_steps)
             self.step_on_save = step
