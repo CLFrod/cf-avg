@@ -3,6 +3,7 @@ import argparse, traceback
 import time, wandb
 
 import numpy as np
+from collections import defaultdict
 import torch.nn as nn
 import gymnasium as gym
 from gymnasium import Env
@@ -14,6 +15,9 @@ from incremental_rl.td_error_scaler import TDErrorScaler
 from gymnasium.wrappers import NormalizeObservation, ClipAction
 from incremental_rl.utils import orthogonal_weight_init, human_format_numbers, set_one_thread
 from incremental_rl.experiment_tracker import ExperimentTracker, record_video
+
+# Skip torch.distributions' per-call argument validation (shape/positive-definiteness checks on every step)
+torch.distributions.Distribution.set_default_validate_args(False)
 
 
 class Actor(nn.Module):
@@ -98,6 +102,11 @@ class Q(nn.Module):
         return self.q(phi).view(-1)
        
 
+def _total_norm(tensors):
+    """ L2 norm over a collection of tensors (e.g. all grads of a network), as a float """
+    return torch.sqrt(sum(torch.norm(t) ** 2 for t in tensors)).item()
+
+
 class AVG:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -120,16 +129,23 @@ class AVG:
         self.td_error_scaler = TDErrorScaler()
         self.G = 0
 
+        # Per-episode accumulators for logging (see pop_episode_stats)
+        self.stats_every = cfg.stats_every
+        self._reset_episode_stats()
+
+    def to_tensor(self, obs):
+        """ numpy obs -> (1, obs_dim) float32 tensor. Passes tensors through, so callers can convert once per step """
+        if isinstance(obs, torch.Tensor):
+            return obs
+        return torch.from_numpy(obs.astype(np.float32)).unsqueeze(0).to(self.device)
+
     def compute_action(self, obs):
-        obs = torch.Tensor(obs.astype(np.float32)).unsqueeze(0).to(self.device)
-        action, action_info = self.actor(obs)
+        action, action_info = self.actor(self.to_tensor(obs))
         return action, action_info
 
     def update(self, obs, action, next_obs, reward, done, **kwargs):
-        obs = torch.Tensor(obs.astype(np.float32)).unsqueeze(0).to(self.device)
-        next_obs = torch.Tensor(next_obs.astype(np.float32)).unsqueeze(0).to(self.device)
-        obs, action, next_obs = obs.to(self.device), action.to(self.device), next_obs.to(self.device)
-        dist, lprob, mu, log_std, action_pre = kwargs['dist'], kwargs['lprob'], kwargs['mu'], kwargs['log_std'], kwargs['action_pre']
+        obs, next_obs = self.to_tensor(obs), self.to_tensor(next_obs)
+        dist, lprob = kwargs['dist'], kwargs['lprob']
 
         #### Return scaling
         r_ent = reward - self.alpha * lprob.detach().item()
@@ -158,34 +174,53 @@ class AVG:
         # Policy loss
         ploss = self.alpha * lprob - self.Q(obs, action) # N.B: USE reparametrized action
 
+        self.steps += 1
+        # Gradient norms are the expensive stats: sample them every stats_every updates instead of every step
+        sample_norms = self.steps % self.stats_every == 0
+
         self.popt.zero_grad()
-        ploss.backward()                 
-        actor_grad_norm = torch.sqrt(sum([torch.norm(p.grad)**2 for p in self.actor.parameters()]))
-        actor_weight_norm = torch.sqrt(sum([torch.norm(p.data)**2 for p in self.actor.parameters()]))
+        ploss.backward()
+        if sample_norms:
+            self._acc['actor_grad_norm'] += _total_norm(p.grad for p in self.actor.parameters())
         self.popt.step()
 
         self.qopt.zero_grad()
         qloss.backward()
-        critic_grad_norm = torch.sqrt(sum([torch.norm(p.grad)**2 for p in self.Q.parameters()]))
-        critic_weight_norm = torch.sqrt(sum([torch.norm(p.data)**2 for p in self.Q.parameters()]))
+        if sample_norms:
+            self._acc['critic_grad_norm'] += _total_norm(p.grad for p in self.Q.parameters())
+            self._acc_norm_n += 1
         self.qopt.step()
 
-        self.steps += 1
-        
-        ### Log stats
-        stat = {
-            'train/actor_loss': ploss.detach().cpu().item(),
-            'train/critic_loss': qloss.detach().cpu().item(),
-            'train/num_updates': self.steps,
-            'train/actor_grad_norm': actor_grad_norm.item(),
-            'train/critic_grad_norm': critic_grad_norm.item(),
-            'train/actor_weight_norm': actor_weight_norm.item(),
-            'train/critic_weight_norm': critic_weight_norm.item(),
-            'train/mod_action': torch.mean(torch.abs(action)).item(),
-            'train/entropy': dist.entropy().item()
-        }
+        ### Accumulate cheap per-step stats; averaged per episode by pop_episode_stats()
+        acc = self._acc
+        acc['actor_loss'] += ploss.item()
+        acc['critic_loss'] += qloss.item()
+        acc['td_error'] += delta.abs().item()
+        acc['entropy'] += dist.entropy().item()
+        acc['mod_action'] += action.abs().mean().item()
+        acc['td_sigma'] += float(self.td_error_scaler.sigma)
+        self._acc_n += 1
 
-        return stat
+    STAT_KEYS = ['actor_loss', 'critic_loss', 'td_error', 'entropy', 'mod_action', 'td_sigma']
+    NORM_KEYS = ['actor_grad_norm', 'critic_grad_norm']
+
+    def _reset_episode_stats(self):
+        # Fixed key set so every logged episode has the same columns
+        self._acc = {k: 0.0 for k in self.STAT_KEYS + self.NORM_KEYS}
+        self._acc_n, self._acc_norm_n = 0, 0
+
+    def pop_episode_stats(self):
+        """ Means of the stats accumulated since the last call (i.e. over the episode), plus current weight norms.
+        Grad norms are NaN for episodes shorter than stats_every (no sample taken) """
+        n = max(1, self._acc_n)
+        stats = {k: self._acc[k] / n for k in self.STAT_KEYS}
+        for k in self.NORM_KEYS:
+            stats[k] = self._acc[k] / self._acc_norm_n if self._acc_norm_n else float('nan')
+        stats['actor_weight_norm'] = _total_norm(p.data for p in self.actor.parameters())
+        stats['critic_weight_norm'] = _total_norm(p.data for p in self.Q.parameters())
+        stats['num_updates'] = self.steps
+        self._reset_episode_stats()
+        return stats
 
     def save(self, model_dir, unique_str):
         model = {
@@ -197,6 +232,14 @@ class AVG:
         torch.save(
             model, '%s/%s.pt' % (model_dir, unique_str)
         )
+
+
+def episode_row(episode, step, ep_len, ret, ep_duration, wall_time, stats, partial=0):
+    """ One metrics.csv row: x-axis columns first, then the agent's per-episode stats """
+    row = {'episode': episode, 'step': step, 'ep_len': ep_len, 'return': ret, 'partial': partial,
+           'ep_duration': round(ep_duration, 3), 'wall_time': round(wall_time, 1)}
+    row.update(stats)
+    return row
 
 
 def main(args):
@@ -248,12 +291,13 @@ def main(args):
     wandb.init(project="avg", config=vars(args), name=expt.exp_name, entity="gauthamv", 
                mode=args.wandb_mode, dir=f"{args.results_dir}")
 
-    # Interaction     
+    # Interaction
     rets, ep_steps = [], []
-    i_episode, ret, step, ep_entropy, ep_mod_action = 0, 0, 0, 0, 0
+    i_episode, ret, step = 0, 0, 0
     terminated, truncated = False, False
     obs, _ = env.reset()
-    ep_tic = time.time()    
+    obs_t = agent.to_tensor(obs)   # convert each observation once; it is reused as next step's obs
+    ep_tic = time.time()
     try:
         for t in range(args.N):
             if t == 3000000:
@@ -266,22 +310,20 @@ def main(args):
                 # k2-18b gravity (estimate)
                 model.opt.gravity[-1] = -11.95
             # N.B: Action is a torch.Tensor
-            action, action_info = agent.compute_action(obs)                
+            action, action_info = agent.compute_action(obs_t)
             sim_action = action.detach().cpu().view(-1).numpy()
 
             # Receive reward and next state
             next_obs, reward, terminated, truncated, _ = env.step(sim_action)
-           
-            # Dump training metrics to logger
-            stat = agent.update(obs, action, next_obs, reward, terminated, **action_info)            
-            ep_entropy += stat['train/entropy']
-            ep_mod_action += stat['train/mod_action']
+            next_obs_t = agent.to_tensor(next_obs)
+
+            agent.update(obs_t, action, next_obs_t, reward, terminated, **action_info)
 
             # Log
             ret += reward
             step += 1
 
-            obs = next_obs
+            obs_t = next_obs_t
 
             if t % args.checkpoint == 0 and args.save_model:
                 agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model_{human_format_numbers(t)}")
@@ -291,38 +333,36 @@ def main(args):
                 rets.append(ret)
                 ep_steps.append(step)
                 i_episode += 1
-                ep_entropy /= step; ep_mod_action /= step
+                row = episode_row(i_episode, t + 1, step, ret, time.time() - ep_tic, time.time() - tic,
+                                  agent.pop_episode_stats())
                 if args.debug:
-                    for k, v in stat.items():
-                        L.log(k, v, t)                
-                    L.log('train/duration', time.time() - ep_tic, t)
+                    for k, v in row.items():
+                        L.log(f'train/{k}', v, t)
                     L.log('train/episode_return', ret, t)
-                    L.log('train/episode', len(rets), t)
+                    L.log('train/duration', row['ep_duration'], t)
                     L.print_log(t)
-                    stat['entropy'] = ep_entropy; stat["mod_action"] = ep_mod_action
-                    expt.dump(t, rets, ep_steps, stat)
+                expt.log_episode(row)
+                expt.checkpoint(t, rets, ep_steps)
 
                 ep_tic = time.time()
                 obs, _ = env.reset()
-                ret, step, ep_entropy, ep_mod_action = 0, 0, 0, 0                         
+                obs_t = agent.to_tensor(obs)
+                ret, step = 0, 0
     except Exception as e:
         print(e)
         print("Exiting this run, storing partial logs in the database for future debugging...")
         traceback.print_exc()
-    
+
     if not (terminated or truncated):
         # N.B: We're adding a partial episode just to make plotting easier. But this data point shouldn't be used
         print("Appending partial episode #{}, length: {}, Total Steps: {}".format(i_episode+1, step, t+1))
         rets.append(ret)
         ep_steps.append(step)
-        ep_entropy /= step; ep_mod_action /= step
-        stat['entropy'] = ep_entropy; stat["mod_action"] = ep_mod_action
-    
-    # Save returns and args before exiting run
-    expt.dump(t, rets, ep_steps, stat)
+        expt.log_episode(episode_row(i_episode + 1, t + 1, step, ret, time.time() - ep_tic, time.time() - tic,
+                                     agent.pop_episode_stats(), partial=1))
 
-    if not args.do_not_save and rets:
-        expt.learning_curve(rets=rets, ep_lens=ep_steps)
+    # Save returns and learning curve before exiting run
+    expt.finish(rets, ep_steps)
 
     if args.save_model:
         agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model")
@@ -370,6 +410,10 @@ def get_parser(add_help=True):
     parser.add_argument('--scaled_td', action='store_true', default=False)
     parser.add_argument("--n_eval", default=0, type=int, help="Number of evaluation episodes to record")
     parser.add_argument("--n_threads", default=1, type=int, help="Torch intra-op threads (1 is fastest for incremental updates)")
+    # Logging
+    parser.add_argument("--stats_every", default=100, type=int, help="Sample gradient norms every k updates (averaged per episode)")
+    parser.add_argument("--vlines", default=[3000000, 6000000, 9000000], type=int, nargs='*',
+                        help="Steps marked with a vertical line on the learning curve (e.g. gravity switches)")
     return parser
 
 

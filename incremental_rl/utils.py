@@ -102,42 +102,40 @@ def get_git_hash():
         return None
 
 
-def smoothed_curve(returns, ep_lens, x_tick=5000, window_len=5000):
-    """
+def binned_curve(steps, values, x_tick=5000, window_len=5000):
+    """ Mean of `values` within a trailing window of `window_len` steps, evaluated every `x_tick` steps.
+
     Args:
-        returns: 1-D numpy array with episodic returs
-        ep_lens: 1-D numpy array with episodic returs
-        x_tick (int): Bin size
-        window_len (int): Length of averaging window
+        steps: 1-D array, the step at which each value was recorded (e.g. cumulative episode lengths)
+        values: 1-D array of the same length
     Returns:
-        A numpy array
+        (means, x): the binned means and the step each bin ends at. Empty bins are skipped.
     """
-    rets = []
-    x = []
-    cum_episode_lengths = np.cumsum(ep_lens)
-
-    if cum_episode_lengths[-1] >= x_tick:
-        y = cum_episode_lengths[-1] + 1
-        steps_show = np.arange(x_tick, y, x_tick)
-
-        for i in range(len(steps_show)):
-            rets_in_window = returns[(cum_episode_lengths > max(0, x_tick * (i + 1) - window_len)) *
-                                     (cum_episode_lengths < x_tick * (i + 1))]
-            if rets_in_window.any():
-                rets.append(np.mean(rets_in_window))
-                x.append((i+1) * x_tick)
-
-    return np.array(rets), np.array(x)
+    steps, values = np.asarray(steps), np.asarray(values)
+    means, x = [], []
+    if len(steps) and steps[-1] >= x_tick:
+        for end in np.arange(x_tick, steps[-1] + 1, x_tick):
+            in_window = values[(steps > max(0, end - window_len)) & (steps < end)]
+            if len(in_window):
+                means.append(np.mean(in_window))
+                x.append(end)
+    return np.array(means), np.array(x)
 
 
-def learning_curve(rets, ep_lens, save_path, x_tick=10000, window_len=10000):
+def smoothed_curve(returns, ep_lens, x_tick=5000, window_len=5000):
+    """ Binned learning curve: episodic returns against cumulative steps. See binned_curve """
+    return binned_curve(np.cumsum(ep_lens), returns, x_tick=x_tick, window_len=window_len)
+
+
+def learning_curve(rets, ep_lens, save_path, x_tick=10000, window_len=10000, vlines=None):
     if len(rets) > 0:
         plot_rets, plot_x = smoothed_curve(np.array(rets), np.array(ep_lens), x_tick=x_tick, window_len=window_len)
         if len(plot_rets):
             plt.clf()
             plt.plot(plot_x, plot_rets)
-            for checkpoint in range(3000000, int(plot_x[-1]) + 1, 3000000):
-                plt.axvline(checkpoint, color="orange", linestyle="--", alpha=0.6)
+            for v in vlines or []:
+                if v <= plot_x[-1]:
+                    plt.axvline(v, color="orange", linestyle="--", alpha=0.6)
             plt.pause(0.001)
             plt.savefig(save_path, dpi=200)
             
