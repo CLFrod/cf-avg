@@ -37,6 +37,22 @@ Results: `$SCRATCH/results/<NAME>-<seed>-<date>/`. Launcher output: `$SCRATCH/av
 
 More seeds than one node holds: submit again with `START_SEED=188`, etc. (each job is a separate node).
 
+## 3. Plot
+
+Every run writes `<run_id>_metrics.csv`: one row per episode (`step`, `return`, `ep_len`, `wall_time`, episode
+means of the losses / TD error / entropy / |action|, sampled grad norms, weight norms). Rows are flushed as
+they are written, so a run killed at the walltime limit keeps everything up to that point.
+
+```bash
+# mean +- std over all seeds of one experiment, one panel per metric
+python -m incremental_rl.plot_runs "$SCRATCH/results/moon_earth-*" --vlines 3000000 6000000 9000000 --out moon_earth.png
+# overlay two experiments, chosen metrics only
+python -m incremental_rl.plot_runs "moon=$SCRATCH/results/moon_earth-*" "base=$SCRATCH/results/baseline-*" \
+    --metrics return critic_loss entropy --out compare.png
+```
+
+`wall_time` vs `step` in the CSV gives the real steps/sec of a full node: use it to set `--N` for the next job.
+
 ## Monitoring
 
 ```bash
