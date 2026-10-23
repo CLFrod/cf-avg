@@ -1,6 +1,6 @@
 import torch
 import os, cv2
-import time, json
+import csv, time
 import numpy as np
 from datetime import datetime
 from incremental_rl.utils import learning_curve, save_args, save_returns, get_git_hash
@@ -16,7 +16,8 @@ class ExperimentTracker:
         self.lc_path = f"{args.results_dir}/{self.run_id}_learning_curve.png"
         self.rets_path = f"{args.results_dir}/{self.run_id}_returns.txt"
         self.args_path = f"{args.results_dir}/{self.run_id}_args.json"
-        self.metrics_path = f"{args.results_dir}/{self.run_id}_metrics.json"
+        self.metrics_path = f"{args.results_dir}/{self.run_id}_metrics.csv"
+        self._metrics_file, self._metrics_writer = None, None
 
         # Autogenerate a expt name
         self.exp_name = "{}-avg-aa-{:.5f}-ca-{:.5f}-beta1-{}".format(args.env, args.actor_lr, args.critic_lr, args.beta1)
@@ -29,25 +30,33 @@ class ExperimentTracker:
             save_args(args, self.args_path)
             self.step_on_save = 0
 
-    def learning_curve(self, rets, ep_lens):
-        save_returns(ep_lens=ep_lens, rets=rets, save_path=self.rets_path)
-        learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path)
-
-    def log_episode_metrics(self, stats):
-        log_string = json.dumps(stats)
-        with open(self.metrics_path, 'a') as f:
-            f.write(log_string + '\n')
-
-    def dump(self, step, rets, ep_lens, stats):
+    def log_episode(self, row):
+        """ Append one episode's metrics as a CSV row (header written on first call; flushed so a killed run keeps its data) """
         if self.args.do_not_save:
             return
+        if self._metrics_writer is None:
+            self._metrics_file = open(self.metrics_path, 'w', newline='')
+            self._metrics_writer = csv.DictWriter(self._metrics_file, fieldnames=list(row.keys()))
+            self._metrics_writer.writeheader()
+        self._metrics_writer.writerow(row)
+        self._metrics_file.flush()
 
-        self.log_episode_metrics(stats)
+    def checkpoint(self, step, rets, ep_lens):
+        """ Save returns + learning curve every args.checkpoint steps """
+        if self.args.do_not_save or step - self.step_on_save < self.args.checkpoint:
+            return
+        self._save_curve(rets, ep_lens)
+        self.step_on_save = step
 
-        if step - self.step_on_save >= self.args.checkpoint:
-            save_returns(ep_lens=ep_lens, rets=rets, save_path=self.rets_path)
-            learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path)
-            self.step_on_save = step
+    def finish(self, rets, ep_lens):
+        if self._metrics_file is not None:
+            self._metrics_file.close()
+        if not self.args.do_not_save and rets:
+            self._save_curve(rets, ep_lens)
+
+    def _save_curve(self, rets, ep_lens):
+        save_returns(ep_lens=ep_lens, rets=rets, save_path=self.rets_path)
+        learning_curve(ep_lens=ep_lens, rets=rets, save_path=self.lc_path, vlines=getattr(self.args, 'vlines', None))
 
 
 # Function to record video
