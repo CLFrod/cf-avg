@@ -339,8 +339,8 @@ def main(args):
     return ep_steps, rets
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def get_parser(add_help=True):
+    parser = argparse.ArgumentParser(add_help=add_help)
     parser.add_argument('--env', default="Hopper-v4", type=str, help="e.g., 'Hopper-v4'")
     parser.add_argument('--seed', default=42, type=int, help="Seed for random number generator")       
     parser.add_argument('--N', default=20001000, type=int, help="# timesteps for the run")
@@ -369,7 +369,11 @@ if __name__ == "__main__":
     parser.add_argument('--pnorm', action='store_true', default=False)
     parser.add_argument('--scaled_td', action='store_true', default=False)
     parser.add_argument("--n_eval", default=0, type=int, help="Number of evaluation episodes to record")
-    args = parser.parse_args()
+    return parser
+
+
+if __name__ == "__main__":
+    args = get_parser().parse_args()
     
     # Adam 
     args.betas = [args.beta1, 0.999]
