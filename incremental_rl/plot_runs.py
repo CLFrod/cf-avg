@@ -17,8 +17,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 from incremental_rl.utils import binned_curve
 
-DEFAULT_METRICS = ['return', 'ep_len', 'actor_loss', 'critic_loss', 'td_error', 'entropy',
-                   'mod_action', 'actor_grad_norm', 'critic_grad_norm', 'actor_weight_norm', 'critic_weight_norm']
+DEFAULT_METRICS = ['return', 'ep_len', 'actor_loss', 'critic_loss', 'td_error', 'entropy', 'mod_action',
+                   'actor_grad_norm', 'critic_grad_norm', 'actor_weight_norm', 'critic_weight_norm', 'steps_per_sec']
 
 
 def parse_args():
@@ -50,6 +50,11 @@ def load_run(path, include_partial):
         reader = csv.reader(f)
         names = next(reader)
         rows = [[float(v) for v in r] for r in reader if r]
+    if 'ep_len' in names and 'ep_duration' in names:   # derived: per-step speed, to spot slowdowns over a run
+        i, j = names.index('ep_len'), names.index('ep_duration')
+        names.append('steps_per_sec')
+        for r in rows:
+            r.append(r[i] / r[j] if r[j] > 0 else float('nan'))
     data = np.array([tuple(r) for r in rows], dtype=[(n, float) for n in names])
     if not include_partial and 'partial' in names:
         data = data[data['partial'] == 0]
