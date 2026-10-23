@@ -369,6 +369,7 @@ def get_parser(add_help=True):
     parser.add_argument('--pnorm', action='store_true', default=False)
     parser.add_argument('--scaled_td', action='store_true', default=False)
     parser.add_argument("--n_eval", default=0, type=int, help="Number of evaluation episodes to record")
+    parser.add_argument("--n_threads", default=1, type=int, help="Torch intra-op threads (1 is fastest for incremental updates)")
     return parser
 
 
@@ -402,4 +403,5 @@ if __name__ == "__main__":
     
     # Start experiment
     set_one_thread()
+    torch.set_num_threads(args.n_threads)
     main(args)
