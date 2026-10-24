@@ -46,8 +46,12 @@ MODE_ARGS=()
 cd "$REPO"
 # The venv is built on the Alliance python module (see README): same Gentoo-layer libraries as libOSMesa, which
 # off-screen video rendering needs. The module must be loaded for the venv's interpreter to run.
+if ! type module &>/dev/null && [ -f /cvmfs/soft.computecanada.ca/config/profile/bash.sh ]; then
+    source /cvmfs/soft.computecanada.ca/config/profile/bash.sh   # Lmod init, if the batch shell lacks `module`
+fi
 module load StdEnv/2023 python/3.13
 source .venv/bin/activate
+echo "python: $(which python) ($(python --version))"
 
 export PYTHONDONTWRITEBYTECODE=1   # can't write __pycache__ to read-only home
 export MPLCONFIGDIR=$SCRATCH/.cache/matplotlib   # matplotlib's font cache: ~/.cache is read-only on compute nodes

@@ -77,11 +77,11 @@ cat > "$OUT/smoke.json" <<EOF
  "experiments": [{"name": "smoke"}]}
 EOF
 python -m incremental_rl.avg_multi_experiment --config "$OUT/smoke.json" --results_dir "$OUT" --n_workers 3 2>/dev/null \
-    | grep -E "^\[(done|FAILED)|finished in"
+    | grep -E "^\[(done|FAILED)|finished in" || true   # a failure shows up as BAD in the summary below
 
 step "4/4 resume: extend the Hopper run to $((N + 1500)) steps from its checkpoint"
 python -m incremental_rl.avg_multi_experiment --resume_from "$OUT/smoke-Hopper-v4-*" --results_dir "$OUT" --N $((N + 1500)) 2>/dev/null \
-    | grep -E "resume from|^\[(done|FAILED)"
+    | grep -E "resume from|^\[(done|FAILED)" || true
 
 step "summary"
 export VIDEOS
