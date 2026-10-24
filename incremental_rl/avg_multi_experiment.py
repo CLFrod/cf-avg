@@ -1,17 +1,31 @@
 """
-Launch many independent avg_ablation runs (one per seed) in parallel.
+Launch many independent avg_ablation runs in parallel: one or more experiments (env + hyperparameters),
+each over a set of seeds.
 
 Each run is a separate `python -m incremental_rl.avg_ablation` subprocess, so runs are fully
 isolated (own env, own torch RNG, own MuJoCo model). Every avg_ablation hyperparameter is
-accepted here and forwarded to all runs.
+accepted here and validated up front.
+
+Single experiment from the command line:
+    python -m incremental_rl.avg_multi_experiment --n_runs 10 --name moon_earth \\
+        --env Hopper-v4 --N 1000000 --actor_lr 0.0003 --alpha_lr 0.1 --normalize_obs --pnorm --scaled_td
+
+Several experiments from a YAML/JSON config (see configs/avg_envs.yaml):
+    python -m incremental_rl.avg_multi_experiment --config configs/avg_envs.yaml
+    python -m incremental_rl.avg_multi_experiment --config configs/avg_envs.yaml --N 2000 --do_not_save  # smoke test
+
+Config layout: `defaults` (any avg_ablation argument, plus `seeds`) and a list of `experiments`, each
+with a unique `name`, an `env`, and any arguments that differ from the defaults. Precedence, lowest to
+highest: avg_ablation defaults < config `defaults` < experiment entry < arguments given on this command line.
+`seeds` is a count (seeds start_seed .. start_seed+n-1) or an explicit list.
 
 On Linux each run is pinned to its own block of --cores_per_run physical cores, taken from the
 CPUs this process is allowed to use (i.e. the Slurm allocation). By default the number of runs
 executing at once is however many blocks fit, after setting aside --reserve_cores for the launcher/OS.
+Jobs are queued round-robin over experiments, so every experiment makes progress when there are more
+runs than cores.
 
-Example:
-    python -m incremental_rl.avg_multi_experiment --n_runs 10 --name moon_earth \
-        --env Hopper-v4 --N 1000000 --actor_lr 0.0003 --alpha_lr 0.1 --normalize_obs --pnorm --scaled_td
+Results: <results_dir>/<experiment name>-<seed>-<launch time>/ per run.
 """
 import os, sys
 import time, json
@@ -21,19 +35,20 @@ import numpy as np
 from datetime import datetime
 from incremental_rl.avg_ablation import get_parser
 
-
 def add_launcher_args(parser):
     group = parser.add_argument_group("multi-experiment")
-    group.add_argument('--n_runs', default=10, type=int, help="Number of avg_ablation runs to launch")
+    group.add_argument('--config', default=None, type=str, help="YAML/JSON file with `defaults` and `experiments`")
+    group.add_argument('--n_runs', default=10, type=int, help="Seeds per experiment (unless the experiment sets `seeds`)")
     group.add_argument('--n_workers', default=None, type=int,
                        help="Max runs executing concurrently (default: as many core blocks as are available)")
     group.add_argument('--cores_per_run', default=1, type=int, help="Physical cores reserved (and pinned) per run")
     group.add_argument('--reserve_cores', default=0, type=int, help="Cores left free for the launcher/OS")
     group.add_argument('--start_seed', default=0, type=int, help="Run i uses seed start_seed + i")
     group.add_argument('--seeds', default=None, type=int, nargs='+', help="Explicit seed list (overrides n_runs/start_seed)")
-    group.add_argument('--results_dir', default="./results", type=str, help="Parent dir; each experiment gets a subfolder")
+    group.add_argument('--results_dir', default="./results", type=str, help="Parent dir; each run gets a subfolder")
     group.add_argument('--name', default="avg_multi", type=str,
-                       help="Experiment name: used for the subfolder and as each run's --description")
+                       help="Experiment name (command-line mode): run folder prefix and each run's --description")
+    group.add_argument('--dry_run', action='store_true', help="Print the resolved experiments and exit")
     return parser
 
 
@@ -43,26 +58,24 @@ def parse_args():
     full_parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                           parents=[get_parser(add_help=False)], conflict_handler='resolve')
     add_launcher_args(full_parser)
-    hyp = full_parser.parse_args()
+    full_parser.parse_args()
 
-    # Split off launcher-only args; everything else is forwarded verbatim to avg_ablation
-    args, ablation_args = add_launcher_args(argparse.ArgumentParser(add_help=False)).parse_known_args()
-    if '--seed' in ablation_args:
-        full_parser.error("--seed is set per run; use --seeds or --start_seed instead")
-    if '--description' not in ablation_args:
-        ablation_args += ['--description', args.name]
+    # Split off launcher-only args; everything else overrides the config / is forwarded to avg_ablation
+    args, cli_overrides = add_launcher_args(argparse.ArgumentParser(add_help=False)).parse_known_args()
+    if '--seed' in cli_overrides:
+        full_parser.error("--seed is set per run; use --seeds / --start_seed, or `seeds` in the config")
 
-    hyp = vars(hyp)
-    for k in ['n_runs', 'n_workers', 'cores_per_run', 'reserve_cores', 'start_seed', 'seeds',
-              'results_dir', 'name', 'seed']:
-        hyp.pop(k)
-    hyp['description'] = ablation_args[ablation_args.index('--description') + 1]
-    args.hyperparams = hyp
+    if args.config:
+        experiments = load_experiments(args.config)
+    else:
+        experiments = [{'name': args.name}]
+    if '--env' in cli_overrides and args.config:
+        print("WARNING: --env on the command line overrides the env of every experiment in the config")
 
-    if args.seeds is None:
-        args.seeds = list(range(args.start_seed, args.start_seed + args.n_runs))
-    if hyp['n_threads'] > args.cores_per_run:
-        print(f"WARNING: --n_threads {hyp['n_threads']} > --cores_per_run {args.cores_per_run}; runs will oversubscribe")
+    args.jobs = build_jobs(experiments, args, cli_overrides, full_parser)
+    n_threads = max(j['hyp']['n_threads'] for j in args.jobs)
+    if n_threads > args.cores_per_run:
+        print(f"WARNING: --n_threads {n_threads} > --cores_per_run {args.cores_per_run}; runs will oversubscribe")
 
     # Contiguous blocks keep a run's cores on one L3 cache (8 cores per CCD on Trillium's EPYC 9655).
     # Reserved cores are taken as whole blocks from the start so the remaining blocks stay aligned
@@ -75,9 +88,89 @@ def parse_args():
     n_workers = args.n_workers or len(slots)
     if n_workers > len(slots):
         print(f"WARNING: {n_workers} workers but only {len(slots)} core blocks; extra runs are not pinned")
-    args.n_workers = max(1, min(n_workers, len(args.seeds)))
+    args.n_workers = max(1, min(n_workers, len(args.jobs)))
     args.slots = slots
-    return args, ablation_args
+    return args
+
+
+def load_experiments(path):
+    """ Config file -> list of experiment dicts with `defaults` merged in """
+    with open(path) as f:
+        if path.endswith((".yaml", ".yml")):
+            import yaml
+            cfg = yaml.safe_load(f)
+        else:
+            cfg = json.load(f)
+    defaults = cfg.get('defaults') or {}
+    experiments = cfg.get('experiments') or []
+    if not experiments:
+        raise SystemExit(f"{path}: no `experiments` listed")
+    merged, names = [], set()
+    for i, exp in enumerate(experiments):
+        exp = {**defaults, **exp}
+        name = exp.get('name') or exp.get('env')
+        if not exp.get('env'):
+            raise SystemExit(f"{path}: experiment #{i + 1} ({name!r}) has no `env`")
+        if name in names:
+            raise SystemExit(f"{path}: duplicate experiment name {name!r}")
+        names.add(name)
+        exp['name'] = name
+        merged.append(exp)
+    return merged
+
+
+def hyp_to_argv(hyp):
+    """ {actor_lr: 1e-5, pnorm: True, vlines: [1, 2]} -> ['--actor_lr', '1e-05', '--pnorm', '--vlines', '1', '2'] """
+    argv = []
+    for k, v in hyp.items():
+        if v is None or v is False:
+            continue
+        argv.append(f"--{k}")
+        if v is not True:
+            argv += [str(x) for x in v] if isinstance(v, (list, tuple)) else [str(v)]
+    return argv
+
+
+def resolve_seeds(exp, args):
+    seeds = exp.get('seeds')
+    start = exp.get('start_seed', args.start_seed)
+    if isinstance(seeds, int):
+        return list(range(start, start + seeds))
+    if seeds:
+        return [int(s) for s in seeds]
+    if args.seeds:
+        return list(args.seeds)
+    return list(range(args.start_seed, args.start_seed + args.n_runs))
+
+
+def build_jobs(experiments, args, cli_overrides, full_parser):
+    """ One job per (experiment, seed), each with a validated avg_ablation argv and the resolved hyperparameters """
+    validator = get_parser(add_help=False)
+    validator.exit_on_error = False
+    jobs_per_exp = []
+    for exp in experiments:
+        name = exp['name']
+        hyp = {k: v for k, v in exp.items() if k not in ('name', 'seeds', 'start_seed')}
+        if 'seed' in hyp:
+            full_parser.error(f"experiment {name!r}: use `seeds`, not `seed`")
+        argv = hyp_to_argv(hyp) + cli_overrides          # later options win, so the command line overrides
+        if '--description' not in argv:
+            argv += ['--description', name]
+        try:
+            ns, unknown = validator.parse_known_args(argv)
+        except argparse.ArgumentError as e:
+            full_parser.error(f"experiment {name!r}: {e}")
+        if unknown:
+            full_parser.error(f"experiment {name!r}: unrecognised arguments {unknown}")
+        resolved = vars(ns)
+        resolved.pop('seed')
+        jobs_per_exp.append([{'name': name, 'seed': s, 'argv': argv, 'hyp': resolved} for s in resolve_seeds(exp, args)])
+
+    # Round-robin over experiments so each one progresses when runs outnumber cores
+    jobs = []
+    for i in range(max(len(j) for j in jobs_per_exp)):
+        jobs += [j[i] for j in jobs_per_exp if i < len(j)]
+    return jobs
 
 
 def pinning_supported():
@@ -101,94 +194,115 @@ def physical_cores():
     return cores
 
 
-def launch(seed, ablation_args, run_dir, n_threads, slot):
+def launch(job, slot):
     cmd = [sys.executable, "-m", "incremental_rl.avg_ablation",
-           "--seed", str(seed), "--results_dir", run_dir, *ablation_args]
+           "--seed", str(job['seed']), "--results_dir", job['run_dir'], *job['argv']]
+    n_threads = job['hyp']['n_threads']
     env = os.environ.copy()
     env["OMP_NUM_THREADS"] = str(n_threads)   # Avoid N processes each grabbing every core
     env["MKL_NUM_THREADS"] = str(n_threads)
     env["MPLBACKEND"] = "Agg"                 # learning_curve() plots; no GUI windows from workers
     # Pin in the child before exec, so torch/OpenMP threads are created with the right affinity
     pin = (lambda: os.sched_setaffinity(0, slot)) if slot and pinning_supported() else None
-    log_f = open(os.path.join(run_dir, "run.log"), "w")
+    log_f = open(os.path.join(job['run_dir'], "run.log"), "w")
     proc = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT, env=env, preexec_fn=pin)
     return proc, log_f
 
 
+def describe(jobs):
+    """ Per experiment: env, seeds, and the hyperparameters that differ from avg_ablation's defaults """
+    defaults = vars(get_parser(add_help=False).parse_args([]))
+    by_exp = {}
+    for j in jobs:
+        by_exp.setdefault(j['name'], []).append(j)
+    for name, js in by_exp.items():
+        hyp = js[0]['hyp']
+        diff = {k: v for k, v in hyp.items() if k not in ('description', 'env') and defaults.get(k) != v}
+        seeds = [j['seed'] for j in js]
+        seed_str = f"{seeds[0]}..{seeds[-1]}" if seeds == list(range(seeds[0], seeds[-1] + 1)) else str(seeds)
+        print(f"  {name}: env={hyp['env']}  seeds={seed_str} ({len(seeds)})  " +
+              "  ".join(f"{k}={v}" for k, v in diff.items()))
+
+
 def main():
     tic = time.time()
-    args, ablation_args = parse_args()
+    args = parse_args()
+    if args.dry_run:
+        print(f"{len(args.slots)} core blocks of {args.cores_per_run} available; "
+              f"{len(args.jobs)} runs would launch, {args.n_workers} at a time:")
+        describe(args.jobs)
+        return
 
-    # One folder per run: results/<name>-<seed>-<date>/. All runs in a launch share the same date stamp
+    # One folder per run: results/<experiment>-<seed>-<date>/. All runs in a launch share the same date stamp
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dirs = {seed: os.path.join(args.results_dir, f"{args.name}-{seed}-{stamp}") for seed in args.seeds}
-    for seed, run_dir in run_dirs.items():
-        os.makedirs(run_dir, exist_ok=True)
-        with open(os.path.join(run_dir, "multi_experiment.json"), "w") as f:
-            json.dump({"seed": seed, "all_seeds": args.seeds, "n_workers": args.n_workers,
-                       "ablation_args": ablation_args, "hyperparams": args.hyperparams}, f, indent=2)
+    for job in args.jobs:
+        job['run_dir'] = os.path.join(args.results_dir, f"{job['name']}-{job['seed']}-{stamp}")
+        os.makedirs(job['run_dir'], exist_ok=True)
+        with open(os.path.join(job['run_dir'], "multi_experiment.json"), "w") as f:
+            json.dump({"experiment": job['name'], "seed": job['seed'], "config": args.config,
+                       "n_workers": args.n_workers, "ablation_args": job['argv'], "hyperparams": job['hyp']},
+                      f, indent=2, default=str)
 
     print(f"{len(args.slots)} core blocks of {args.cores_per_run} available, {args.reserve_cores} cores reserved")
-    print(f"Launching {len(args.seeds)} runs ({args.n_workers} at a time) -> "
-          f"{os.path.join(args.results_dir, f'{args.name}-<seed>-{stamp}')}")
-    print("Hyperparameters:")
-    for k, v in args.hyperparams.items():
-        print(f"  {k}: {v}")
+    print(f"Launching {len(args.jobs)} runs ({args.n_workers} at a time) -> "
+          f"{os.path.join(args.results_dir, f'<experiment>-<seed>-{stamp}')}")
+    describe(args.jobs)
 
-    pending = list(args.seeds)
-    running = {}    # seed -> (proc, log_file, start_time, slot)
-    status = {}     # seed -> return code
+    pending = list(args.jobs)
+    running = {}    # (name, seed) -> (job, proc, log_file, start_time, slot)
+    status = {}     # (name, seed) -> return code
     free_slots = list(args.slots)
     try:
         while pending or running:
             while pending and len(running) < args.n_workers:
-                seed = pending.pop(0)
+                job = pending.pop(0)
                 slot = free_slots.pop(0) if free_slots else None
-                proc, log_f = launch(seed, ablation_args, run_dirs[seed], args.hyperparams['n_threads'], slot)
-                running[seed] = (proc, log_f, time.time(), slot)
-                print(f"[start] seed {seed} (pid {proc.pid}, cores {slot if pinning_supported() else 'unpinned'})")
+                proc, log_f = launch(job, slot)
+                running[(job['name'], job['seed'])] = (job, proc, log_f, time.time(), slot)
+                print(f"[start] {job['name']} seed {job['seed']} (pid {proc.pid}, "
+                      f"cores {slot if pinning_supported() else 'unpinned'})")
 
-            for seed, (proc, log_f, t0, slot) in list(running.items()):
+            for key, (job, proc, log_f, t0, slot) in list(running.items()):
                 if proc.poll() is not None:
                     log_f.close()
                     if slot:
                         free_slots.append(slot)
-                    status[seed] = proc.returncode
-                    del running[seed]
+                    status[key] = proc.returncode
+                    del running[key]
                     tag = "done" if proc.returncode == 0 else f"FAILED rc={proc.returncode}"
-                    print(f"[{tag}] seed {seed} in {time.time()-t0:.1f}s "
-                          f"({len(status)}/{len(args.seeds)} finished)")
+                    print(f"[{tag}] {job['name']} seed {job['seed']} in {time.time()-t0:.1f}s "
+                          f"({len(status)}/{len(args.jobs)} finished)")
             time.sleep(1)
     except KeyboardInterrupt:
         print("Interrupted, terminating running workers...")
-        for proc, log_f, _, _ in running.values():
+        for _, proc, log_f, _, _ in running.values():
             proc.terminate()
             proc.wait()
             log_f.close()
         raise
 
-    summarize(run_dirs, status)
+    summarize(args.jobs, status)
     print("All runs finished in {:.1f}s".format(time.time() - tic))
 
 
-def summarize(run_dirs, status):
-    failed = [s for s, rc in status.items() if rc != 0]
+def summarize(jobs, status):
+    failed = [k for k, rc in status.items() if rc != 0]
     if failed:
-        print(f"Failed seeds: {failed} (see run.log in each run folder)")
+        print(f"Failed runs: {failed} (see run.log in each run folder)")
 
     # Per-run returns files are written by save_returns() as a (2, n_episodes) array: [ep_lens; rets]
     final_rets = {}
-    for seed, run_dir in run_dirs.items():
-        for fname in os.listdir(run_dir):
+    for job in jobs:
+        for fname in os.listdir(job['run_dir']):
             if fname.endswith("_returns.txt"):
                 try:
-                    data = np.loadtxt(os.path.join(run_dir, fname)).reshape(2, -1)
-                    final_rets[seed] = float(np.mean(data[1, -10:]))
+                    data = np.loadtxt(os.path.join(job['run_dir'], fname)).reshape(2, -1)
+                    final_rets.setdefault(job['name'], []).append(float(np.mean(data[1, -10:])))
                 except Exception as e:
                     print(f"Could not parse {fname}: {e}")
-    if final_rets:
-        vals = np.array(list(final_rets.values()))
-        print(f"Mean of last-10-episode returns over {len(vals)} runs: {vals.mean():.2f} +- {vals.std():.2f}")
+    for name, vals in final_rets.items():
+        vals = np.array(vals)
+        print(f"{name}: mean of last-10-episode returns over {len(vals)} runs: {vals.mean():.2f} +- {vals.std():.2f}")
 
 
 if __name__ == "__main__":

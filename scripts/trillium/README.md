@@ -37,6 +37,17 @@ Results: `$SCRATCH/results/<NAME>-<seed>-<date>/`. Launcher output: `$SCRATCH/av
 
 More seeds than one node holds: submit again with `START_SEED=188`, etc. (each job is a separate node).
 
+Several environments, each with its own hyperparameters, in one job: describe them in a config
+(`configs/avg_envs.yaml` has the paper's per-env values) and pass it as `CONFIG`:
+
+```bash
+sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml,RUN_ARGS= $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
+```
+
+Runs land in `$SCRATCH/results/<experiment name>-<seed>-<date>/`. Keep the total seed count across
+experiments at or below 188 per job, or the extras queue until a core frees up (and must still finish
+inside the 24 h walltime).
+
 ## 3. Plot
 
 Every run writes `<run_id>_metrics.csv`: one row per episode (`step`, `return`, `ep_len`, `wall_time`, episode
