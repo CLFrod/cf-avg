@@ -4,10 +4,10 @@
     "same hyperparameters/physics mechanics as trillium_dynamics_3env.json, videos at 30k (switch) and the end.",
     "Job 1 (stop early, exercise checkpoints):",
     "  sbatch -p debug --time=00:15:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_jobtest.json,TIME_LIMIT=0.025 \\",
-    "      $HOME/cf-avg/scripts/trillium/avg_multi.sbatch",
+    "      $HOME/cf-avg/scripts/trillium/avg_multi.sh",
     "Job 2 (resume to completion, after job 1 has finished):",
     "  sbatch -p debug --time=00:15:00 --export=ALL,RESUME_FROM=\"$SCRATCH/results/jobtest-*\" \\",
-    "      $HOME/cf-avg/scripts/trillium/avg_multi.sbatch"
+    "      $HOME/cf-avg/scripts/trillium/avg_multi.sh"
   ],
   "defaults": {
     "N": 60000,

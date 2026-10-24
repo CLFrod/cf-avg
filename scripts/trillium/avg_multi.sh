@@ -3,12 +3,12 @@
 #
 # Submit from a directory in $SCRATCH (home is read-only on compute nodes, so Slurm's output file must
 # land in scratch). With no arguments it runs configs/trillium_dynamics_3env.json:
-#   cd $SCRATCH/avg_jobs && sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
+#   cd $SCRATCH/avg_jobs && sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sh
 #
 # Everything else is optional, set through environment variables (Slurm's --export=ALL,VAR=value):
-#   a different experiment file:      sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml avg_multi.sbatch
+#   a different experiment file:      sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml avg_multi.sh
 #   continue runs stopped at the time limit (TIME_LIMIT hours, default 23.5) in a new job:
-#                                      sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*" avg_multi.sbatch
+#                                      sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*" avg_multi.sh
 #     (add --dependency=afterany:<jobid> to queue it behind the first job automatically)
 #   more runs than one node holds:    one job per slice, SHARD=1/2 and SHARD=2/2 (same CONFIG)
 #   a single experiment without a config: CONFIG= plus RUN_ARGS="--env Hopper-v4 --N 12000000 ..." and NAME/N_RUNS

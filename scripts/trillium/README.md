@@ -49,11 +49,11 @@ Use the full-node number to check `--N` fits in 24 h: `hours ≈ N / steps_per_s
 
 ```bash
 mkdir -p $SCRATCH/avg_jobs && cd $SCRATCH/avg_jobs
-sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sbatch      # runs configs/trillium_dynamics_3env.json
+sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sh      # runs configs/trillium_dynamics_3env.json
 ```
 
 Other experiments or a single hand-written run are selected with environment variables
-(`sbatch --export=ALL,CONFIG=... avg_multi.sbatch`); see the header of the script.
+(`sbatch --export=ALL,CONFIG=... avg_multi.sh`); see the header of the script.
 
 Results: `$SCRATCH/results/<NAME>-<seed>-<date>/`. Launcher output: `$SCRATCH/avg_jobs/avg_multi_<jobid>.out`.
 
@@ -63,7 +63,7 @@ Several environments, each with its own hyperparameters, in one job: describe th
 (`configs/avg_envs.yaml` has the paper's per-env values) and pass it as `CONFIG`:
 
 ```bash
-sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml,RUN_ARGS= $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
+sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml,RUN_ARGS= $HOME/cf-avg/scripts/trillium/avg_multi.sh
 ```
 
 Runs land in `$SCRATCH/results/<experiment name>-<env>-<seed>-<date>/`. Keep the total seed count across
@@ -79,9 +79,9 @@ resumed run is bit-identical to one that was never interrupted (physics schedule
 run of a job in a new job:
 
 ```bash
-sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/gravity-*-20261024_*" $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
+sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/gravity-*-20261024_*" $HOME/cf-avg/scripts/trillium/avg_multi.sh
 # or queue it behind the first job right away:
-sbatch --dependency=afterany:<first jobid> --export=ALL,RESUME_FROM="..." avg_multi.sbatch
+sbatch --dependency=afterany:<first jobid> --export=ALL,RESUME_FROM="..." avg_multi.sh
 ```
 
 Finished runs are skipped (`checkpoint.json` has `"complete": true`), the rest continue from their last
