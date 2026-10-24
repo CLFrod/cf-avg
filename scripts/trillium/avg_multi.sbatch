@@ -60,7 +60,7 @@ echo "Job $SLURM_JOB_ID on $(hostname): $(nproc) CPUs in allocation"
 python - <<'EOF'
 try:
     import gymnasium as gym
-    e = gym.make("Hopper-v4", render_mode="rgb_array"); e.reset(seed=0); frame = e.render(); e.close()
+    e = gym.make("Hopper-v4", render_mode="rgb_array", width=640, height=480); e.reset(seed=0); frame = e.render(); e.close()
     print(f"OSMesa render OK: frame {frame.shape}")
 except Exception as ex:
     print(f"OSMesa render FAILED ({type(ex).__name__}: {ex}); runs will train without videos")

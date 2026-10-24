@@ -15,7 +15,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # if uv isn't already availabl
 uv sync                                           # builds .venv (Python 3.13 + deps) on the login node
 ```
 
-## 1. Benchmark (interactive, ~15 min of a 60 min debugjob)
+## 1a. Smoke test (login node, ~1 min, 3 cores)
+
+```bash
+cd $HOME/cf-avg && bash scripts/trillium/smoke_test.sh
+```
+
+Checks OSMesa rendering, resolves the real config, runs one tiny run per env (Hopper / Ant / Humanoid) through a
+physics + termination switch with videos and checkpoints into `$SCRATCH/results/smoke_<time>/`, then resumes
+one of them. Ends with `ALL OK` and the per-run steps/s. Stays inside the login-node limits.
+
+## 1b. Benchmark (interactive, ~15 min of a 60 min debugjob)
 
 ```bash
 debugjob
