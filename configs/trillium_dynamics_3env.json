@@ -1,8 +1,7 @@
 {
   "_comment": [
-    "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4: 14 conditions x 3 envs x 5 seeds = 210 runs.",
-    "That is more than one 188-slot node: submit two jobs with SHARD=1/2 and SHARD=2/2 (105 runs each),",
-    "or drop conditions / seeds to fit one node.",
+    "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4 on one 192-core node:",
+    "6 baseline conditions x 3 envs x 5 seeds = 90 runs + 8 split conditions x 3 envs x 3 seeds = 72 runs -> 162 runs.",
     "Each experiment without an `env` is run on every env in `envs` (with that env's paper hyperparameters);",
     "`per_env` gives env-specific overrides. Keys starting with _ are comments.",
     "Conditions 1-6 are the baselines: constant settings for 12M steps, so each reaches its peak.",
@@ -61,33 +60,33 @@
      "_": "6. every body twice as heavy (inertia scaled with it)",
      "env_mods": {"mass_scale": 2.0}},
 
-    {"name": "base_to_moon",
+    {"name": "base_to_moon", "n_runs": 3,
      "_": "7. base for 6M steps, then the `moon` physics",
      "schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}]},
 
-    {"name": "moon_to_base",
+    {"name": "moon_to_base", "n_runs": 3,
      "_": "8. `moon` physics for 6M steps, then base",
      "env_mods": {"gravity": -1.62},
      "schedule": [{"step": 6000000, "mods": {"gravity": -9.81}}]},
 
-    {"name": "base_to_gear2x",
+    {"name": "base_to_gear2x", "n_runs": 3,
      "_": "9. base for 6M steps, then the `gear2x` physics",
      "schedule": [{"step": 6000000, "mods": {"gear_scale": 2.0}}]},
 
-    {"name": "base_to_slippery",
+    {"name": "base_to_slippery", "n_runs": 3,
      "_": "10. base for 6M steps, then the `slippery` physics",
      "schedule": [{"step": 6000000, "mods": {"friction_scale": 0.3}}]},
 
-    {"name": "base_to_heavy",
+    {"name": "base_to_heavy", "n_runs": 3,
      "_": "11. base for 6M steps, then the `heavy` physics",
      "schedule": [{"step": 6000000, "mods": {"mass_scale": 2.0}}]},
 
-    {"name": "heavy_to_base",
+    {"name": "heavy_to_base", "n_runs": 3,
      "_": "12. `heavy` physics for 6M steps, then base",
      "env_mods": {"mass_scale": 2.0},
      "schedule": [{"step": 6000000, "mods": {"mass_scale": 1.0}}]},
 
-    {"name": "base_to_moon_adapted",
+    {"name": "base_to_moon_adapted", "n_runs": 3,
      "_": "13. base for 6M steps, then the `moon_adapted` physics AND termination bounds (set in place)",
      "per_env": {
        "Hopper-v4":   {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_angle_range": [-0.5, 0.5]}}]},
@@ -95,7 +94,7 @@
        "Humanoid-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [1.0, 3.5]}}]}
      }},
 
-    {"name": "moon_adapted_to_base",
+    {"name": "moon_adapted_to_base", "n_runs": 3,
      "_": "14. `moon_adapted` for 6M steps, then base physics and default termination bounds",
      "env_mods": {"gravity": -1.62},
      "per_env": {
