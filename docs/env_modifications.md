@@ -1,216 +1,202 @@
 # Environment modifications: Ant-v4, Hopper-v4, Humanoid-v4
 
-Everything below was read from the models as loaded by `gymnasium 1.3.0` / `mujoco 3.14` (not from the docs), so
-the names and default values are what `incremental_rl/env_mods.py` actually sees. Two kinds of modification:
+All names and default values below were read from the models as loaded by `gymnasium 1.3.0` / `mujoco 3.14`,
+so they are exactly what `incremental_rl/env_mods.py` sees. Each environment's section is self-contained.
 
 | kind | what it changes | how it is set | can change mid-run? |
 |---|---|---|---|
-| **Physics / dynamics** | fields of the MuJoCo model (`env.unwrapped.model`) | `env_mods` (at step 0) and `schedule` (at a given step) | yes |
-| **Reward / termination** | the Gymnasium env's constructor arguments | `env_kwargs` → `gym.make(env, **env_kwargs)` | no (fixed for the run) |
+| **Reward / termination** (Section 1) | the Gymnasium env's constructor arguments | `env_kwargs` → `gym.make(env, **env_kwargs)` | no (fixed for the run) |
+| **Physics / dynamics** (Section 2) | fields of the MuJoCo model (`env.unwrapped.model`) | `env_mods` (at step 0) and `schedule` (at a given step) | yes |
 
 Config example (one experiment of a multi-experiment file):
 
 ```json
 {"name": "moon_mars", "env": "Ant-v4", "n_runs": 30,
- "env_kwargs": {"ctrl_cost_weight": 0.25, "healthy_z_range": [0.2, 1.5]},
+ "env_kwargs": {"ctrl_cost_weight": 0.25, "healthy_z_range": [0.2, 1.5], "max_episode_steps": 1000},
  "env_mods":   {"gravity": -1.62, "mass_scale": 0.8},
  "schedule":   [{"step": 3000000, "mods": {"gravity": -3.71}},
                 {"step": 6000000, "mods": {"gravity": -9.81, "gear_scale": 1.2}}]}
 ```
 
----
-
-## Part 1 — Physics / dynamics (`env_mods` / `schedule`)
-
-### 1.1 The modification keys (same for every env)
-
-`*_scale` keys are relative to the **original** model values, not to the current ones, so a schedule of
-`mass_scale: 0.8` then `mass_scale: 1.0` restores the default. Absolute keys take the model's own names
-(tables in 1.2–1.4).
-
-| key | value | sets | notes |
-|---|---|---|---|
-| `gravity` | `-1.62` or `[gx, gy, gz]` | `opt.gravity` | scalar = z component (default `-9.81`). Moon −1.62, Mars −3.71, K2‑18b ≈ −11.95 |
-| `wind` | `[wx, wy, wz]` m/s | `opt.wind` | only has an effect if `density` or `viscosity` > 0 |
-| `density` | kg/m³ | `opt.density` | medium density; enables lift/drag (air ≈ 1.2) |
-| `viscosity` | Pa·s | `opt.viscosity` | medium viscosity (air ≈ 1.8e‑5, water ≈ 1e‑3) |
-| `timestep` | s | `opt.timestep` | physics step; `env.dt = timestep × frame_skip`. Smaller = more accurate & slower; larger can go unstable |
-| `mass_scale` | factor | `body_mass`, `body_inertia` | all bodies |
-| `mass` | `{body: kg}` | `body_mass[i]`, inertia scaled by the same ratio | per body name |
-| `friction_scale` | factor or `[slide, spin, roll]` | `geom_friction` | all geoms (floor included) |
-| `friction` | `{geom: μ}` or `{geom: [slide, spin, roll]}` | `geom_friction[i]` | per geom name; scalar sets sliding μ only |
-| `damping_scale` | factor | `dof_damping` | all joints (root/free joints have 0 and stay 0) |
-| `damping` | `{joint: value}` | `dof_damping` | per joint name |
-| `armature_scale` | factor | `dof_armature` | rotor inertia added to each joint |
-| `stiffness_scale` | factor | `jnt_stiffness` | joint springs (Humanoid only has non‑zero values) |
-| `gear_scale` | factor | `actuator_gear` | all actuators = motor strength |
-| `gear` | `{actuator: value}` | `actuator_gear[i, 0]` | per actuator name, or the joint it drives (Ant's actuators are unnamed) |
-
-After any mass/inertia change `mujoco.mj_setConst` is called so derived quantities (subtree masses, etc.) stay
-consistent. All applied values are printed once and stored in the run's `args.json`.
-
-What the physics fields mean for the agent:
-
-- **gravity** — changes the dynamics of every jump/fall and the ground reaction forces; the observation and reward
-  functions are untouched, so this is a pure dynamics shift (the continual-learning setting you already use).
-- **mass / inertia** — heavier bodies need more torque for the same motion; same gear → slower, lower jumps.
-- **friction** — sliding μ governs push-off; lowering the floor's μ makes the agent slip (Hopper's foot is 2.0, the
-  rest 0.9; Humanoid's floor has spin/roll friction 0.1 vs 0.005 on bodies).
-- **damping / armature / stiffness** — joint-level resistance; damping scales with velocity, armature adds inertia,
-  stiffness pulls towards the joint's spring reference.
-- **gear** — the torque applied per unit of action (`torque = gear × ctrl`); a gear change effectively rescales the
-  action space's strength without changing its bounds.
-- **timestep** — integration accuracy; changing it also changes how many physics sub-steps each agent step covers.
-
-### 1.2 Ant-v4
-
-`timestep 0.01`, `frame_skip 5` (agent `dt 0.05`), gravity `[0, 0, −9.81]`, total mass **0.91**, wind/density/viscosity 0.
-
-Bodies (mass kg, inertia diag):
-
-| body | mass | inertia |
-|---|---|---|
-| `torso` | 0.3272 | 0.0082 ×3 |
-| `front_left_leg`, `aux_1`, (unnamed ankle) | 0.0392, 0.0392, 0.0676 | 0.0006 / 0.0006 / 0.0027 |
-| `front_right_leg`, `aux_2`, (unnamed ankle) | same | same |
-| `back_leg`, `aux_3`, (unnamed ankle) | same | same |
-| `right_back_leg`, `aux_4`, (unnamed ankle) | same | same |
-
-The four ankle (lower-leg) bodies have no name in the XML: address them through their geoms (`left_ankle_geom`, …)
-for friction, or use `mass_scale` for mass.
-
-Geoms (friction `[slide, spin, roll]` is `[1.0, 0.5, 0.5]` for **all** geoms): `floor`, `torso_geom`,
-`aux_1_geom`, `left_leg_geom`, `left_ankle_geom`, `aux_2_geom`, `right_leg_geom`, `right_ankle_geom`,
-`aux_3_geom`, `back_leg_geom`, `third_ankle_geom`, `aux_4_geom`, `rightback_leg_geom`, `fourth_ankle_geom`.
-
-Joints: `root` (free, no damping); `hip_1..4`, `ankle_1..4` — damping **1.0**, armature **1.0**, stiffness 0,
-ranges hip ±30°, ankle 30°–70°.
-
-Actuators (unnamed; address by joint): `hip_1..4`, `ankle_1..4` — gear **150**, ctrl range [−1, 1].
-
-### 1.3 Hopper-v4
-
-`timestep 0.002`, `frame_skip 4` (agent `dt 0.008`), gravity `[0, 0, −9.81]`, total mass **15.82**.
-
-| body | mass | inertia |
-|---|---|---|
-| `torso` | 3.6652 | 0.0692, 0.0692, 0.0045 |
-| `thigh` | 4.0579 | 0.0933, 0.0933, 0.0049 |
-| `leg` | 2.7814 | 0.0723, 0.0723, 0.0022 |
-| `foot` | 5.3156 | 0.1035, 0.1035, 0.0092 |
-
-Geoms and friction `[slide, spin, roll]`:
-
-| geom | friction |
-|---|---|
-| `floor` | 1.0, 0.005, 0.0001 |
-| `torso_geom`, `thigh_geom`, `leg_geom` | 0.9, 0.005, 0.0001 |
-| `foot_geom` | **2.0**, 0.005, 0.0001 |
-
-Joints: `rootx`, `rootz` (slide), `rooty` (hinge) — no damping; `thigh_joint`, `leg_joint` (range −150°–0),
-`foot_joint` (±45°) — damping **1.0**, armature **1.0**, stiffness 0.
-
-Actuators (unnamed; address by joint): `thigh_joint`, `leg_joint`, `foot_joint` — gear **200**, ctrl range [−1, 1].
-
-### 1.4 Humanoid-v4
-
-`timestep 0.003`, `frame_skip 5` (agent `dt 0.015`), gravity `[0, 0, −9.81]`, total mass **42.12**.
-
-| body | mass | inertia |
-|---|---|---|
-| `torso` | 8.9075 | 0.1732, 0.1540, 0.0411 |
-| `lwaist` | 2.2619 | 0.0099, 0.0099, 0.0037 |
-| `pelvis` | 6.6162 | 0.0523, 0.0523, 0.0243 |
-| `right_thigh` / `left_thigh` | 4.7518 | 0.0750, 0.0750, 0.0082 |
-| `right_shin` / `left_shin` | 2.7557 | 0.0326, 0.0326, 0.0032 |
-| `right_foot` / `left_foot` | 1.7671 | 0.004 ×3 |
-| `right_upper_arm` / `left_upper_arm` | 1.6611 | 0.0159, 0.0159, 0.0013 |
-| `right_lower_arm` / `left_lower_arm` | 1.2295 | 0.0137, 0.0137, 0.0006 |
-
-Geoms: `floor` friction `[1.0, 0.1, 0.1]`; all body geoms `[1.0, 0.005, 0.0001]`: `torso1`, `head`, `uwaist`,
-`lwaist`, `butt`, `right_thigh1`, `right_shin1`, `right_foot`, `left_thigh1`, `left_shin1`, `left_foot`,
-`right_uarm1`, `right_larm`, `right_hand`, `left_uarm1`, `left_larm`, `left_hand`.
-
-Joints (damping / armature / stiffness):
-
-| joint(s) | damping | armature | stiffness |
-|---|---|---|---|
-| `root` (free) | 0 | 0 | 0 |
-| `abdomen_z` | 5 | 0.02 | 20 |
-| `abdomen_y`, `abdomen_x` | 5 | 0.02 | 10 |
-| `right_hip_x`, `right_hip_z`, `left_hip_x`, `left_hip_z` | 5 | 0.01 | 10 |
-| `right_hip_y`, `left_hip_y` | 5 | 0.008 / 0.01 | 20 |
-| `right_knee` | 1 | 0.006 | 0 |
-| `left_knee` | 1 | 0.006 | 1 |
-| `right_shoulder1/2`, `left_shoulder1/2` | 1 | 0.007 / 0.005 | 1 |
-| `right_elbow`, `left_elbow` | 1 | 0.003 | 0 |
-
-Actuators (named after their joint), gear: `abdomen_y/z/x` 100; `right/left_hip_x`, `right/left_hip_z` 100;
-`right/left_hip_y` **300**; `right/left_knee` 200; shoulders and elbows 25. Ctrl range **[−0.4, 0.4]** for all.
+`*_scale` keys are relative to the **original** model values, not the current ones, so `mass_scale: 0.8`
+followed later by `mass_scale: 1.0` restores the default. All applied values are printed to `run.log` once and
+the full `env_kwargs` / `env_mods` / `schedule` are stored in the run's `args.json`.
 
 ---
 
-## Part 2 — Reward / termination (`env_kwargs`)
+# Section 1 — Reward and termination (`env_kwargs`)
 
-These are Gymnasium constructor arguments; they are fixed for a run. One more knob is set at `gym.make` level and
-is also accepted in `env_kwargs`: `max_episode_steps` (default **1000** for all three) — the truncation limit.
+These are constructor arguments of the Gymnasium environment and are fixed for the whole run. One extra knob is
+applied at `gym.make` level and is also accepted inside `env_kwargs`: **`max_episode_steps`** (default **1000**
+for all three environments) — the step count at which an episode is truncated. Range-valued arguments are given
+as 2-element lists in JSON.
 
-### 2.1 Ant-v4
+## 1.1 Ant-v4
 
-Reward per step = `healthy_reward` + `forward_reward` − `ctrl_cost` − `contact_cost`, where
-`forward_reward = Δx_torso / dt` (weight fixed at 1 in v4),
-`ctrl_cost = ctrl_cost_weight · Σ action²`,
-`contact_cost = contact_cost_weight · Σ clip(external contact forces, contact_force_range)²`.
+**Reward per step** = `healthy_reward` + `forward_reward` − `ctrl_cost` − `contact_cost`
+
+- `forward_reward = Δx_torso / dt` — forward velocity of the torso (weight fixed at 1 in v4; there is no
+  `forward_reward_weight` argument)
+- `ctrl_cost = ctrl_cost_weight · Σ action²`
+- `contact_cost = contact_cost_weight · Σ clip(external contact forces, contact_force_range)²` — only when
+  `use_contact_forces` is true
+
+**Healthy** ⇔ torso height z within `healthy_z_range` **and** every state value finite.
 
 | argument | default | effect |
 |---|---|---|
 | `ctrl_cost_weight` | 0.5 | penalty on action magnitude (energy) |
-| `use_contact_forces` | False | adds the 84 contact-force values to the observation **and** enables `contact_cost` |
+| `use_contact_forces` | false | adds the 84 contact-force values to the observation **and** enables `contact_cost` |
 | `contact_cost_weight` | 5e‑4 | weight of the contact penalty (only if `use_contact_forces`) |
-| `contact_force_range` | (−1, 1) | clipping of contact forces before squaring |
+| `contact_force_range` | [−1, 1] | clipping of contact forces before squaring |
 | `healthy_reward` | 1.0 | constant bonus every step the ant is healthy |
-| `healthy_z_range` | (0.2, 1.0) | torso height for "healthy"; also every state value must be finite |
-| `terminate_when_unhealthy` | True | end the episode when unhealthy (otherwise just no `healthy_reward`) |
-| `reset_noise_scale` | 0.1 | uniform noise on initial joint positions/velocities |
-| `exclude_current_positions_from_observation` | True | drop torso x, y from the observation (27 dims instead of 29) |
+| `healthy_z_range` | [0.2, 1.0] | torso height band for "healthy" |
+| `terminate_when_unhealthy` | true | end the episode when unhealthy; if false the episode continues but without `healthy_reward` |
+| `reset_noise_scale` | 0.1 | uniform noise added to the initial joint positions / velocities |
+| `exclude_current_positions_from_observation` | true | drop torso x, y from the observation (27 dims instead of 29) |
+| `max_episode_steps` | 1000 | truncation limit |
 
-### 2.2 Hopper-v4
+## 1.2 Hopper-v4
 
-Reward per step = `healthy_reward` + `forward_reward_weight · Δx / dt` − `ctrl_cost_weight · Σ action²`.
-Healthy ⇔ all of: state values (excluding x) within `healthy_state_range`, torso z within `healthy_z_range`,
-torso angle within `healthy_angle_range`.
+**Reward per step** = `healthy_reward` + `forward_reward_weight · Δx / dt` − `ctrl_cost_weight · Σ action²`
+
+**Healthy** ⇔ all of: every state value (excluding x) within `healthy_state_range`, torso height z within
+`healthy_z_range`, torso angle within `healthy_angle_range`.
 
 | argument | default | effect |
 |---|---|---|
 | `forward_reward_weight` | 1.0 | weight of forward velocity |
 | `ctrl_cost_weight` | 1e‑3 | penalty on action magnitude |
 | `healthy_reward` | 1.0 | constant bonus per healthy step |
-| `healthy_state_range` | (−100, 100) | bound on every state element |
-| `healthy_z_range` | (0.7, ∞) | minimum torso height (falling = unhealthy) |
-| `healthy_angle_range` | (−0.2, 0.2) rad | torso pitch allowed before "fallen" (≈ ±11.5°) |
-| `terminate_when_unhealthy` | True | terminate vs. continue without the healthy bonus |
+| `healthy_state_range` | [−100, 100] | bound on every state element (positions and velocities) |
+| `healthy_z_range` | [0.7, inf] | minimum torso height; falling below = unhealthy |
+| `healthy_angle_range` | [−0.2, 0.2] rad | torso pitch allowed before "fallen" (≈ ±11.5°) |
+| `terminate_when_unhealthy` | true | terminate vs. continue without the healthy bonus |
 | `reset_noise_scale` | 5e‑3 | initial-state noise |
-| `exclude_current_positions_from_observation` | True | drop x from the observation (11 dims instead of 12) |
+| `exclude_current_positions_from_observation` | true | drop x from the observation (11 dims instead of 12) |
+| `max_episode_steps` | 1000 | truncation limit |
 
-### 2.3 Humanoid-v4
+## 1.3 Humanoid-v4
 
-Reward per step = `healthy_reward` + `forward_reward_weight · Δx_com / dt` − `ctrl_cost_weight · Σ action²`
-(v4 has no contact cost; the 376‑dim observation does include contact forces).
+**Reward per step** = `healthy_reward` + `forward_reward_weight · Δx_com / dt` − `ctrl_cost_weight · Σ action²`
+
+- forward velocity is that of the **centre of mass**, not the torso
+- v4 has **no contact cost** argument (the 376‑dim observation does include contact forces)
+
+**Healthy** ⇔ torso height z within `healthy_z_range`.
 
 | argument | default | effect |
 |---|---|---|
 | `forward_reward_weight` | 1.25 | weight of the centre-of-mass forward velocity |
 | `ctrl_cost_weight` | 0.1 | penalty on action magnitude |
-| `healthy_reward` | 5.0 | constant bonus per healthy step (dominates early reward) |
-| `healthy_z_range` | (1.0, 2.0) | torso height for "healthy" (fallen or launched = unhealthy) |
-| `terminate_when_unhealthy` | True | terminate vs. continue without the healthy bonus |
+| `healthy_reward` | 5.0 | constant bonus per healthy step (dominates the reward early in training) |
+| `healthy_z_range` | [1.0, 2.0] | torso height band for "healthy" (fallen or launched = unhealthy) |
+| `terminate_when_unhealthy` | true | terminate vs. continue without the healthy bonus |
 | `reset_noise_scale` | 1e‑2 | initial-state noise |
-| `exclude_current_positions_from_observation` | True | drop x, y from the observation (376 dims instead of 378) |
+| `exclude_current_positions_from_observation` | true | drop x, y from the observation (376 dims instead of 378) |
+| `max_episode_steps` | 1000 | truncation limit |
 
-### 2.4 Things that change the task but are not plain kwargs
+## 1.4 Not available as arguments
 
-- **Episode length**: `max_episode_steps` (above).
-- **Reward scaling / shaping** and **observation or action noise**: not constructor arguments; they would be
-  Gymnasium wrappers (`TransformReward`, custom noise wrappers). Not implemented yet — say if you want them.
-- **Geometry** (limb lengths, extra obstacles, slopes): needs a modified XML (`xml_file` kwarg). Not covered by
+- **Reward scaling / shaping, observation or action noise** — not constructor arguments; they would be Gymnasium
+  wrappers (`TransformReward`, custom noise wrappers). Not implemented.
+- **Geometry** (limb lengths, obstacles, slopes) — needs a modified XML via the `xml_file` argument. Not covered by
   `env_mods`.
+
+---
+
+# Section 2 — Physics and dynamics (`env_mods` / `schedule`)
+
+Each subsection lists **every** modification available for that environment, with that environment's own body,
+geom, joint and actuator names and default values. After any mass change `mujoco.mj_setConst` is called so
+derived quantities (subtree masses etc.) stay consistent.
+
+What the fields mean for the agent (same for all three):
+
+- **gravity** — changes every jump, fall and ground-reaction force; observation and reward are untouched, so this
+  is a pure dynamics shift
+- **mass / inertia** — heavier bodies need more torque for the same motion; same gear → slower, lower movement
+- **friction** — sliding μ governs push-off; lowering the floor's μ makes the agent slip
+- **damping / armature / stiffness** — joint-level resistance: damping scales with joint velocity, armature adds
+  rotor inertia, stiffness pulls the joint towards its spring reference
+- **gear** — torque per unit of action (`torque = gear × ctrl`): rescales motor strength without changing the
+  action bounds
+- **timestep** — physics integration step; `agent dt = timestep × frame_skip`. Smaller is more accurate and slower,
+  larger can go unstable
+- **wind / density / viscosity** — aerodynamic forces; `wind` only acts when `density` or `viscosity` is non-zero
+
+## 2.1 Ant-v4
+
+**Simulation options** (`model.opt`): `timestep` **0.01**, `frame_skip` 5 (agent dt 0.05), `gravity` **[0, 0, −9.81]**,
+`wind` [0, 0, 0], `density` 0, `viscosity` 0. Total mass **0.91 kg**.
+
+| key | value | what it sets (Ant defaults) |
+|---|---|---|
+| `gravity` | `-1.62` or `[gx, gy, gz]` | `opt.gravity`, default [0, 0, −9.81]; a scalar sets the z component (Moon −1.62, Mars −3.71, K2‑18b ≈ −11.95) |
+| `wind` | `[wx, wy, wz]` m/s | `opt.wind`, default [0, 0, 0] |
+| `density` | kg/m³ | `opt.density`, default 0 (air ≈ 1.2) |
+| `viscosity` | Pa·s | `opt.viscosity`, default 0 (air ≈ 1.8e‑5) |
+| `timestep` | s | `opt.timestep`, default 0.01 |
+| `mass_scale` | factor | mass and inertia of all 13 bodies |
+| `mass` | `{body: kg}` | per body; inertia scaled by the same ratio. Bodies: `torso` 0.3272; `front_left_leg`, `aux_1`, `front_right_leg`, `aux_2`, `back_leg`, `aux_3`, `right_back_leg`, `aux_4` 0.0392 each; the four lower-leg (ankle) bodies are **unnamed** (0.0676 each) — reach them with `mass_scale` |
+| `friction_scale` | factor or `[slide, spin, roll]` | friction of all 14 geoms |
+| `friction` | `{geom: μ}` or `{geom: [slide, spin, roll]}` | per geom. All geoms default **[1.0, 0.5, 0.5]**: `floor`, `torso_geom`, `aux_1_geom`, `left_leg_geom`, `left_ankle_geom`, `aux_2_geom`, `right_leg_geom`, `right_ankle_geom`, `aux_3_geom`, `back_leg_geom`, `third_ankle_geom`, `aux_4_geom`, `rightback_leg_geom`, `fourth_ankle_geom` |
+| `damping_scale` | factor | `dof_damping` of all joints (the free `root` joint has 0 and stays 0) |
+| `damping` | `{joint: value}` | per joint. `hip_1`…`hip_4`, `ankle_1`…`ankle_4`: damping **1.0** each |
+| `armature_scale` | factor | `dof_armature`: hips and ankles **1.0** each |
+| `stiffness_scale` | factor | `jnt_stiffness`: all joints **0** in Ant, so this has no effect |
+| `gear_scale` | factor | `actuator_gear` of all 8 actuators |
+| `gear` | `{actuator: value}` | per actuator. Ant's actuators are **unnamed**: address them by the joint they drive — `hip_1`…`hip_4`, `ankle_1`…`ankle_4`, gear **150** each, ctrl range [−1, 1] |
+
+Joint ranges for reference: hips ±30°, ankles 30°–70° (sign alternates per leg).
+
+## 2.2 Hopper-v4
+
+**Simulation options** (`model.opt`): `timestep` **0.002**, `frame_skip` 4 (agent dt 0.008), `gravity` **[0, 0, −9.81]**,
+`wind` [0, 0, 0], `density` 0, `viscosity` 0. Total mass **15.82 kg**.
+
+| key | value | what it sets (Hopper defaults) |
+|---|---|---|
+| `gravity` | `-1.62` or `[gx, gy, gz]` | `opt.gravity`, default [0, 0, −9.81]; a scalar sets the z component (Moon −1.62, Mars −3.71, K2‑18b ≈ −11.95) |
+| `wind` | `[wx, wy, wz]` m/s | `opt.wind`, default [0, 0, 0] |
+| `density` | kg/m³ | `opt.density`, default 0 (air ≈ 1.2) |
+| `viscosity` | Pa·s | `opt.viscosity`, default 0 (air ≈ 1.8e‑5) |
+| `timestep` | s | `opt.timestep`, default 0.002 |
+| `mass_scale` | factor | mass and inertia of all 4 bodies |
+| `mass` | `{body: kg}` | per body; inertia scaled by the same ratio. Bodies: `torso` 3.6652, `thigh` 4.0579, `leg` 2.7814, `foot` 5.3156 |
+| `friction_scale` | factor or `[slide, spin, roll]` | friction of all 5 geoms |
+| `friction` | `{geom: μ}` or `{geom: [slide, spin, roll]}` | per geom: `floor` [1.0, 0.005, 0.0001]; `torso_geom`, `thigh_geom`, `leg_geom` [0.9, 0.005, 0.0001]; `foot_geom` **[2.0, 0.005, 0.0001]** |
+| `damping_scale` | factor | `dof_damping` of all joints (`rootx`, `rootz`, `rooty` have 0 and stay 0) |
+| `damping` | `{joint: value}` | per joint. `thigh_joint`, `leg_joint`, `foot_joint`: damping **1.0** each |
+| `armature_scale` | factor | `dof_armature`: `thigh_joint`, `leg_joint`, `foot_joint` **1.0** each |
+| `stiffness_scale` | factor | `jnt_stiffness`: all joints **0** in Hopper, so this has no effect |
+| `gear_scale` | factor | `actuator_gear` of all 3 actuators |
+| `gear` | `{actuator: value}` | per actuator. Hopper's actuators are **unnamed**: address them by the joint they drive — `thigh_joint`, `leg_joint`, `foot_joint`, gear **200** each, ctrl range [−1, 1] |
+
+Joint ranges for reference: `thigh_joint`, `leg_joint` −150°–0°, `foot_joint` ±45°.
+
+## 2.3 Humanoid-v4
+
+**Simulation options** (`model.opt`): `timestep` **0.003**, `frame_skip` 5 (agent dt 0.015), `gravity` **[0, 0, −9.81]**,
+`wind` [0, 0, 0], `density` 0, `viscosity` 0. Total mass **42.12 kg**.
+
+| key | value | what it sets (Humanoid defaults) |
+|---|---|---|
+| `gravity` | `-1.62` or `[gx, gy, gz]` | `opt.gravity`, default [0, 0, −9.81]; a scalar sets the z component (Moon −1.62, Mars −3.71, K2‑18b ≈ −11.95) |
+| `wind` | `[wx, wy, wz]` m/s | `opt.wind`, default [0, 0, 0] |
+| `density` | kg/m³ | `opt.density`, default 0 (air ≈ 1.2) |
+| `viscosity` | Pa·s | `opt.viscosity`, default 0 (air ≈ 1.8e‑5) |
+| `timestep` | s | `opt.timestep`, default 0.003 |
+| `mass_scale` | factor | mass and inertia of all 13 bodies |
+| `mass` | `{body: kg}` | per body; inertia scaled by the same ratio. Bodies: `torso` 8.9075, `lwaist` 2.2619, `pelvis` 6.6162, `right_thigh` / `left_thigh` 4.7518, `right_shin` / `left_shin` 2.7557, `right_foot` / `left_foot` 1.7671, `right_upper_arm` / `left_upper_arm` 1.6611, `right_lower_arm` / `left_lower_arm` 1.2295 |
+| `friction_scale` | factor or `[slide, spin, roll]` | friction of all 18 geoms |
+| `friction` | `{geom: μ}` or `{geom: [slide, spin, roll]}` | per geom: `floor` **[1.0, 0.1, 0.1]**; all body geoms [1.0, 0.005, 0.0001]: `torso1`, `head`, `uwaist`, `lwaist`, `butt`, `right_thigh1`, `right_shin1`, `right_foot`, `left_thigh1`, `left_shin1`, `left_foot`, `right_uarm1`, `right_larm`, `right_hand`, `left_uarm1`, `left_larm`, `left_hand` |
+| `damping_scale` | factor | `dof_damping` of all joints (the free `root` joint has 0 and stays 0) |
+| `damping` | `{joint: value}` | per joint: `abdomen_z`, `abdomen_y`, `abdomen_x`, `right_hip_x`, `right_hip_z`, `right_hip_y`, `left_hip_x`, `left_hip_z`, `left_hip_y` **5**; `right_knee`, `left_knee`, `right_shoulder1`, `right_shoulder2`, `right_elbow`, `left_shoulder1`, `left_shoulder2`, `left_elbow` **1** |
+| `armature_scale` | factor | `dof_armature`: abdomen 0.02; hips 0.01 (`right_hip_y` 0.008); knees 0.006; shoulders 0.007 / 0.005; elbows 0.003 |
+| `stiffness_scale` | factor | `jnt_stiffness` (Humanoid is the only one of the three with joint springs): `abdomen_z` 20, `abdomen_y` / `abdomen_x` 10, hip x/z 10, hip y 20, `right_knee` 0, `left_knee` 1, shoulders 1, elbows 0 |
+| `gear_scale` | factor | `actuator_gear` of all 17 actuators |
+| `gear` | `{actuator: value}` | per actuator (named after their joint): `abdomen_y`, `abdomen_z`, `abdomen_x` 100; `right_hip_x`, `right_hip_z`, `left_hip_x`, `left_hip_z` 100; `right_hip_y`, `left_hip_y` **300**; `right_knee`, `left_knee` 200; `right_shoulder1`, `right_shoulder2`, `right_elbow`, `left_shoulder1`, `left_shoulder2`, `left_elbow` 25. Ctrl range **[−0.4, 0.4]** for all |
+
+Joint ranges for reference: abdomen ±45° (z), −75°–30° (y), ±35° (x); hips −25°–5° (x), −60°–35° (z),
+−110°–20° (y); knees −160°–−2°; shoulders ±60°–85°; elbows −90°–50°.
