@@ -14,10 +14,10 @@ Several experiments from a YAML/JSON config (see configs/avg_envs.yaml):
     python -m incremental_rl.avg_multi_experiment --config configs/avg_envs.yaml
     python -m incremental_rl.avg_multi_experiment --config configs/avg_envs.yaml --N 2000 --do_not_save  # smoke test
 
-Config layout: `defaults` (any avg_ablation argument, plus `seeds`) and a list of `experiments`, each
-with a unique `name`, an `env`, and any arguments that differ from the defaults. Precedence, lowest to
+Config layout: `defaults` (any avg_ablation argument, plus `n_runs`/`seeds`) and a list of `experiments`,
+each with a unique `name`, an `env`, and any arguments that differ from the defaults. Precedence, lowest to
 highest: avg_ablation defaults < config `defaults` < experiment entry < arguments given on this command line.
-`seeds` is a count (seeds start_seed .. start_seed+n-1) or an explicit list.
+`n_runs` is the number of instances (seeds start_seed .. start_seed+n-1); `seeds` can also be an explicit list.
 
 On Linux each run is pinned to its own block of --cores_per_run physical cores, taken from the
 CPUs this process is allowed to use (i.e. the Slurm allocation). By default the number of runs
@@ -25,7 +25,7 @@ executing at once is however many blocks fit, after setting aside --reserve_core
 Jobs are queued round-robin over experiments, so every experiment makes progress when there are more
 runs than cores.
 
-Results: <results_dir>/<experiment name>-<seed>-<launch time>/ per run.
+Results: <results_dir>/<experiment name>-<env>-<seed>-<launch time>/ per run.
 """
 import os, sys
 import time, json
@@ -132,7 +132,7 @@ def hyp_to_argv(hyp):
 
 
 def resolve_seeds(exp, args):
-    seeds = exp.get('seeds')
+    seeds = exp.get('seeds', exp.get('n_runs'))   # n_runs: count only; seeds: count or explicit list
     start = exp.get('start_seed', args.start_seed)
     if isinstance(seeds, int):
         return list(range(start, start + seeds))
@@ -150,7 +150,7 @@ def build_jobs(experiments, args, cli_overrides, full_parser):
     jobs_per_exp = []
     for exp in experiments:
         name = exp['name']
-        hyp = {k: v for k, v in exp.items() if k not in ('name', 'seeds', 'start_seed')}
+        hyp = {k: v for k, v in exp.items() if k not in ('name', 'seeds', 'n_runs', 'start_seed')}
         if 'seed' in hyp:
             full_parser.error(f"experiment {name!r}: use `seeds`, not `seed`")
         argv = hyp_to_argv(hyp) + cli_overrides          # later options win, so the command line overrides
@@ -233,10 +233,10 @@ def main():
         describe(args.jobs)
         return
 
-    # One folder per run: results/<experiment>-<seed>-<date>/. All runs in a launch share the same date stamp
+    # One folder per run: results/<experiment>-<env>-<seed>-<date>/. All runs in a launch share the same date stamp
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     for job in args.jobs:
-        job['run_dir'] = os.path.join(args.results_dir, f"{job['name']}-{job['seed']}-{stamp}")
+        job['run_dir'] = os.path.join(args.results_dir, f"{job['name']}-{job['hyp']['env']}-{job['seed']}-{stamp}")
         os.makedirs(job['run_dir'], exist_ok=True)
         with open(os.path.join(job['run_dir'], "multi_experiment.json"), "w") as f:
             json.dump({"experiment": job['name'], "seed": job['seed'], "config": args.config,
@@ -245,7 +245,7 @@ def main():
 
     print(f"{len(args.slots)} core blocks of {args.cores_per_run} available, {args.reserve_cores} cores reserved")
     print(f"Launching {len(args.jobs)} runs ({args.n_workers} at a time) -> "
-          f"{os.path.join(args.results_dir, f'<experiment>-<seed>-{stamp}')}")
+          f"{os.path.join(args.results_dir, f'<experiment>-<env>-<seed>-{stamp}')}")
     describe(args.jobs)
 
     pending = list(args.jobs)

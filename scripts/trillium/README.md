@@ -44,7 +44,7 @@ Several environments, each with its own hyperparameters, in one job: describe th
 sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml,RUN_ARGS= $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
 ```
 
-Runs land in `$SCRATCH/results/<experiment name>-<seed>-<date>/`. Keep the total seed count across
+Runs land in `$SCRATCH/results/<experiment name>-<env>-<seed>-<date>/`. Keep the total seed count across
 experiments at or below 188 per job, or the extras queue until a core frees up (and must still finish
 inside the 24 h walltime).
 
