@@ -35,6 +35,15 @@ source .venv/bin/activate
 tic=$(date +%s)
 step() { echo; echo "== $*"; }
 
+step "0/4 interpreter: the venv must be on the Alliance python module, not uv's standalone build"
+python - <<'EOF'
+import sys
+print(f"  python {sys.version.split()[0]}  base: {sys.base_prefix}")
+if ".local/share/uv/python" in sys.base_prefix:
+    print("  WARNING: this venv is on uv's standalone Python; libOSMesa (Gentoo layer) cannot load into it.")
+    print("  Rebuild: deactivate; module load StdEnv/2023 python/3.13; rm -rf .venv; uv sync --python \"$(which python)\"")
+EOF
+
 step "1/4 OSMesa render check (MUJOCO_GL=$MUJOCO_GL)"
 if python - <<'EOF'
 import gymnasium as gym
