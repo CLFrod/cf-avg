@@ -172,21 +172,31 @@ def load_experiments(path):
             cfg = yaml.safe_load(f)
         else:
             cfg = json.load(f)
-    defaults = cfg.get("defaults") or {}
+    # Keys starting with "_" are comments anywhere in the file
+    strip = lambda d: {k: v for k, v in (d or {}).items() if not k.startswith("_")}
+    defaults = strip(cfg.get("defaults"))
+    # Optional `envs` block: per-environment settings (typically the tuned hyperparameters). An experiment with
+    # no `env` is expanded over every env in the block; `per_env: {env: {...}}` gives it env-specific overrides.
+    # Precedence, low -> high: defaults < envs[env] < experiment < per_env[env]
+    envs = {k: strip(v) for k, v in (cfg.get("envs") or {}).items()}
     experiments = cfg.get("experiments") or []
     if not experiments:
         raise SystemExit(f"{path}: no `experiments` listed")
     merged, names = [], set()
     for i, exp in enumerate(experiments):
-        exp = {**defaults, **exp}
-        name = exp.get("name") or exp.get("env")
-        if not exp.get("env"):
-            raise SystemExit(f"{path}: experiment #{i + 1} ({name!r}) has no `env`")
-        if (name, exp["env"]) in names:
-            raise SystemExit(f"{path}: duplicate experiment {name!r} on {exp['env']}")
-        names.add((name, exp["env"]))
-        exp["name"] = name
-        merged.append(exp)
+        exp = strip(exp)
+        per_env = strip(exp.pop("per_env", None))
+        targets = [exp["env"]] if exp.get("env") else list(envs)
+        if not targets:
+            raise SystemExit(f"{path}: experiment #{i + 1} ({exp.get('name')!r}) has no `env` and there is no `envs` block")
+        for env_id in targets:
+            e = {**defaults, **envs.get(env_id, {}), **exp, **strip(per_env.get(env_id)), "env": env_id}
+            name = e.get("name") or env_id
+            if (name, env_id) in names:
+                raise SystemExit(f"{path}: duplicate experiment {name!r} on {env_id}")
+            names.add((name, env_id))
+            e["name"] = name
+            merged.append(e)
     return merged
 
 

@@ -1,0 +1,81 @@
+{
+  "_comment": [
+    "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4: 12 conditions x 3 envs x 5 seeds = 180 runs, one 192-core node.",
+    "Each experiment without an `env` is run on every env in `envs` (with that env's paper hyperparameters);",
+    "`per_env` gives env-specific overrides. Keys starting with _ are comments.",
+    "Conditions 1-6 are constant for 12M steps; 7-12 switch dynamics at the halfway point (6M).",
+    "Friction note: MuJoCo uses the max of the two touching geoms' friction, so `friction_scale` (all geoms) is used",
+    "rather than lowering the floor alone (Hopper's foot is 2.0 and would dominate)."
+  ],
+
+  "defaults": {
+    "N": 12000000,
+    "n_runs": 5,
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true
+  },
+
+  "envs": {
+    "Hopper-v4":   {"actor_lr": 1.1e-5, "critic_lr": 7.7e-5, "alpha_lr": 0.3},
+    "Ant-v4":      {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
+    "Humanoid-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07}
+  },
+
+  "experiments": [
+    {"name": "base",
+     "_": "1. default physics, default reward/termination"},
+
+    {"name": "moon",
+     "_": "2. Moon gravity (1.62 m/s^2) from step 0, default reward/termination",
+     "env_mods": {"gravity": -1.62}},
+
+    {"name": "moon_adapted",
+     "_": "3. Moon gravity with termination bounds relaxed for the higher/longer flight phases low gravity allows",
+     "env_mods": {"gravity": -1.62},
+     "per_env": {
+       "Hopper-v4":   {"env_kwargs": {"healthy_angle_range": [-0.5, 0.5]}},
+       "Ant-v4":      {"env_kwargs": {"healthy_z_range": [0.2, 2.5]}},
+       "Humanoid-v4": {"env_kwargs": {"healthy_z_range": [1.0, 3.5]}}
+     }},
+
+    {"name": "gear2x",
+     "_": "4. every actuator twice as strong (torque = gear x ctrl)",
+     "env_mods": {"gear_scale": 2.0}},
+
+    {"name": "slippery",
+     "_": "5. all contact friction scaled to 0.3x (floor and bodies)",
+     "env_mods": {"friction_scale": 0.3}},
+
+    {"name": "heavy",
+     "_": "6. every body twice as heavy (inertia scaled with it)",
+     "env_mods": {"mass_scale": 2.0}},
+
+    {"name": "base_to_moon",
+     "_": "7. Earth for 6M steps, then Moon gravity",
+     "schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}]},
+
+    {"name": "moon_to_base",
+     "_": "8. Moon for 6M steps, then Earth gravity (reverse of 7)",
+     "env_mods": {"gravity": -1.62},
+     "schedule": [{"step": 6000000, "mods": {"gravity": -9.81}}]},
+
+    {"name": "base_to_gear2x",
+     "_": "9. default for 6M steps, then actuators 2x stronger",
+     "schedule": [{"step": 6000000, "mods": {"gear_scale": 2.0}}]},
+
+    {"name": "base_to_heavy",
+     "_": "10. default for 6M steps, then 2x mass",
+     "schedule": [{"step": 6000000, "mods": {"mass_scale": 2.0}}]},
+
+    {"name": "base_to_slippery",
+     "_": "11. default for 6M steps, then 0.3x friction",
+     "schedule": [{"step": 6000000, "mods": {"friction_scale": 0.3}}]},
+
+    {"name": "base_to_k2",
+     "_": "12. default for 6M steps, then K2-18b gravity (11.95 m/s^2, ~1.2 g)",
+     "schedule": [{"step": 6000000, "mods": {"gravity": -11.95}}]}
+  ]
+}
