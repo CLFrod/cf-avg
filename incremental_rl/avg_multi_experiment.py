@@ -35,6 +35,7 @@ import subprocess
 import numpy as np
 from datetime import datetime
 from incremental_rl.avg_ablation import get_parser
+from incremental_rl import env_mods
 
 
 def add_launcher_args(parser):
@@ -181,6 +182,9 @@ def load_experiments(path):
     return merged
 
 
+JSON_KEYS = ("env_kwargs", "env_mods", "schedule")   # structured values: passed to avg_ablation as JSON strings
+
+
 def hyp_to_argv(hyp):
     """{actor_lr: 1e-5, pnorm: True, vlines: [1, 2]} -> ['--actor_lr', '1e-05', '--pnorm', '--vlines', '1', '2']"""
     argv = []
@@ -188,7 +192,9 @@ def hyp_to_argv(hyp):
         if v is None or v is False:
             continue
         argv.append(f"--{k}")
-        if v is not True:
+        if k in JSON_KEYS:
+            argv.append(json.dumps(v))
+        elif v is not True:
             argv += [str(x) for x in v] if isinstance(v, (list, tuple)) else [str(v)]
     return argv
 
@@ -234,6 +240,10 @@ def build_jobs(experiments, args, cli_overrides, full_parser):
             full_parser.error(f"experiment {name!r}: unrecognised arguments {unknown}")
         resolved = vars(ns)
         resolved.pop("seed")
+        try:  # build the env once and apply every mod, so a bad kwarg/body/geom name fails here, not in 30 runs
+            env_mods.validate(resolved["env"], resolved["env_kwargs"], resolved["env_mods"], resolved["schedule"])
+        except Exception as e:
+            full_parser.exit(2, f"error: experiment {name!r} ({resolved['env']}): {type(e).__name__}: {e}\n")
         label = f"{name}/{resolved['env']}"  # what the progress lines and summary call this experiment
         jobs_per_exp.append(
             [
@@ -247,6 +257,10 @@ def build_jobs(experiments, args, cli_overrides, full_parser):
     for i in range(max(len(j) for j in jobs_per_exp)):
         jobs += [j[i] for j in jobs_per_exp if i < len(j)]
     return jobs
+
+
+def pinning_supported():
+    return hasattr(os, "sched_setaffinity")
 
 
 def physical_cores():
