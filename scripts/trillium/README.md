@@ -15,6 +15,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # if uv isn't already availabl
 uv sync                                           # builds .venv (Python 3.13 + deps) on the login node
 ```
 
+No module is needed for Python: `uv` is a user-space binary and brings its own Python, and `uv sync` reproduces
+the exact versions in `uv.lock`. The only module that may be needed is for OSMesa (see Notes). If you prefer the
+Alliance's standard route instead, `requirements.txt` pins the same versions:
+
+```bash
+module load python/3.13 && python -m venv $HOME/cf-avg-venv && source $HOME/cf-avg-venv/bin/activate
+pip install -r requirements.txt && pip install -e .      # then use this venv in place of .venv in the scripts
+```
+
 ## 1a. Smoke test (login node, ~1 min, 3 cores)
 
 ```bash
