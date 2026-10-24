@@ -28,7 +28,8 @@ START_SEED=${START_SEED:-0}
 RESERVE_CORES=${RESERVE_CORES:-4}              # launcher + OS + file I/O
 RUN_ARGS=${RUN_ARGS-"--env Hopper-v4 --N 12000000 --normalize_obs --pnorm --scaled_td"}
 CONFIG=${CONFIG:-}                             # multi-experiment YAML/JSON; empty = single experiment from RUN_ARGS
-CONFIG_ARG=${CONFIG:+--config "$CONFIG"}
+CONFIG_ARG=()
+[ -n "$CONFIG" ] && CONFIG_ARG=(--config "$CONFIG")
 
 cd "$REPO"
 source .venv/bin/activate
@@ -40,7 +41,7 @@ export PYTHONDONTWRITEBYTECODE=1   # can't write __pycache__ to read-only home
 export MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa
 
 echo "Job $SLURM_JOB_ID on $(hostname): $(nproc) CPUs in allocation"
-python -m incremental_rl.avg_multi_experiment $CONFIG_ARG \
+python -m incremental_rl.avg_multi_experiment "${CONFIG_ARG[@]}" \
     --name "$NAME" --results_dir "$RESULTS_DIR" \
     --n_runs "$N_RUNS" --start_seed "$START_SEED" \
     --cores_per_run 1 --reserve_cores "$RESERVE_CORES" \

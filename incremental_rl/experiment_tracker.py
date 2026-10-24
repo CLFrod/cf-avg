@@ -1,5 +1,5 @@
 import torch
-import os, cv2
+import os
 import csv, time
 import numpy as np
 from datetime import datetime
@@ -61,6 +61,7 @@ class ExperimentTracker:
 
 # Function to record video
 def record_video(env: Env, policy, num_episodes=10, video_filename='video.mp4'):
+    import cv2  # imported here, not at module level: opencv needs libGL, which headless compute nodes may lack
     # Define video codec and create VideoWriter object
     print(video_filename)
     video = cv2.VideoWriter(video_filename, cv2.VideoWriter_fourcc(*'mp4v'), 30.0, (640, 480))
