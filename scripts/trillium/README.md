@@ -11,10 +11,12 @@ AVG does one tiny update per env step, so a run can't use more than ~1 core. The
 
 ```bash
 cd $HOME && git clone -b optimize_logging https://github.com/CLFrod/cf-avg.git && cd cf-avg
-curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env   # uv itself: user-space binary
-module load StdEnv/2023 python/3.13       # the interpreter: Alliance's python, built in the Gentoo layer
-uv sync --python "$(which python)"        # exact versions from uv.lock, installed into a venv on that python
+bash scripts/trillium/setup_env.sh
 ```
+
+The script installs `uv` if needed, loads `StdEnv/2023 python/3.13`, and runs `uv sync --python "$(which python)"`,
+i.e. the exact versions from `uv.lock` installed into a venv on the module's interpreter. Rerun it whenever
+`uv.lock` changes.
 
 Why the module's Python rather than uv's own: off-screen video rendering loads `libOSMesa` from the Gentoo
 layer (`$EBROOTGENTOO/lib64`), and a library from that layer can only be loaded into a Python built in the same
