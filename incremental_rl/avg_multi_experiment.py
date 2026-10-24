@@ -111,9 +111,9 @@ def load_experiments(path):
         name = exp.get('name') or exp.get('env')
         if not exp.get('env'):
             raise SystemExit(f"{path}: experiment #{i + 1} ({name!r}) has no `env`")
-        if name in names:
-            raise SystemExit(f"{path}: duplicate experiment name {name!r}")
-        names.add(name)
+        if (name, exp['env']) in names:
+            raise SystemExit(f"{path}: duplicate experiment {name!r} on {exp['env']}")
+        names.add((name, exp['env']))
         exp['name'] = name
         merged.append(exp)
     return merged
@@ -164,7 +164,9 @@ def build_jobs(experiments, args, cli_overrides, full_parser):
             full_parser.error(f"experiment {name!r}: unrecognised arguments {unknown}")
         resolved = vars(ns)
         resolved.pop('seed')
-        jobs_per_exp.append([{'name': name, 'seed': s, 'argv': argv, 'hyp': resolved} for s in resolve_seeds(exp, args)])
+        label = f"{name}/{resolved['env']}"   # what the progress lines and summary call this experiment
+        jobs_per_exp.append([{'name': name, 'label': label, 'seed': s, 'argv': argv, 'hyp': resolved}
+                             for s in resolve_seeds(exp, args)])
 
     # Round-robin over experiments so each one progresses when runs outnumber cores
     jobs = []
@@ -214,13 +216,13 @@ def describe(jobs):
     defaults = vars(get_parser(add_help=False).parse_args([]))
     by_exp = {}
     for j in jobs:
-        by_exp.setdefault(j['name'], []).append(j)
-    for name, js in by_exp.items():
+        by_exp.setdefault(j['label'], []).append(j)
+    for label, js in by_exp.items():
         hyp = js[0]['hyp']
         diff = {k: v for k, v in hyp.items() if k not in ('description', 'env') and defaults.get(k) != v}
         seeds = [j['seed'] for j in js]
         seed_str = f"{seeds[0]}..{seeds[-1]}" if seeds == list(range(seeds[0], seeds[-1] + 1)) else str(seeds)
-        print(f"  {name}: env={hyp['env']}  seeds={seed_str} ({len(seeds)})  " +
+        print(f"  {label}: seeds={seed_str} ({len(seeds)})  " +
               "  ".join(f"{k}={v}" for k, v in diff.items()))
 
 
@@ -249,8 +251,8 @@ def main():
     describe(args.jobs)
 
     pending = list(args.jobs)
-    running = {}    # (name, seed) -> (job, proc, log_file, start_time, slot)
-    status = {}     # (name, seed) -> return code
+    running = {}    # (label, seed) -> (job, proc, log_file, start_time, slot)
+    status = {}     # (label, seed) -> return code
     free_slots = list(args.slots)
     try:
         while pending or running:
@@ -258,8 +260,8 @@ def main():
                 job = pending.pop(0)
                 slot = free_slots.pop(0) if free_slots else None
                 proc, log_f = launch(job, slot)
-                running[(job['name'], job['seed'])] = (job, proc, log_f, time.time(), slot)
-                print(f"[start] {job['name']} seed {job['seed']} (pid {proc.pid}, "
+                running[(job['label'], job['seed'])] = (job, proc, log_f, time.time(), slot)
+                print(f"[start] {job['label']} seed {job['seed']} (pid {proc.pid}, "
                       f"cores {slot if pinning_supported() else 'unpinned'})")
 
             for key, (job, proc, log_f, t0, slot) in list(running.items()):
@@ -270,7 +272,7 @@ def main():
                     status[key] = proc.returncode
                     del running[key]
                     tag = "done" if proc.returncode == 0 else f"FAILED rc={proc.returncode}"
-                    print(f"[{tag}] {job['name']} seed {job['seed']} in {time.time()-t0:.1f}s "
+                    print(f"[{tag}] {job['label']} seed {job['seed']} in {time.time()-t0:.1f}s "
                           f"({len(status)}/{len(args.jobs)} finished)")
             time.sleep(1)
     except KeyboardInterrupt:
@@ -297,7 +299,7 @@ def summarize(jobs, status):
             if fname.endswith("_returns.txt"):
                 try:
                     data = np.loadtxt(os.path.join(job['run_dir'], fname)).reshape(2, -1)
-                    final_rets.setdefault(job['name'], []).append(float(np.mean(data[1, -10:])))
+                    final_rets.setdefault(job['label'], []).append(float(np.mean(data[1, -10:])))
                 except Exception as e:
                     print(f"Could not parse {fname}: {e}")
     for name, vals in final_rets.items():
