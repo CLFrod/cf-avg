@@ -1,13 +1,15 @@
 {
   "_comment": [
     "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4 on one 192-core node:",
-    "6 baseline conditions x 3 envs x 5 seeds = 90 runs + 8 split conditions x 3 envs x 3 seeds = 72 runs -> 162 runs.",
+    "6 baselines x 3 envs x 5 seeds = 90, 10 splits x 3 envs x 3 seeds = 90, 1 there-and-back x 3 envs x 2 seeds = 6 -> 186 runs",
+    "(188 slots with 4 cores reserved).",
     "Each experiment without an `env` is run on every env in `envs` (with that env's paper hyperparameters);",
     "`per_env` gives env-specific overrides. Keys starting with _ are comments.",
     "Conditions 1-6 are the baselines: constant settings for 12M steps, so each reaches its peak.",
     "Conditions 7-12 are splits that switch at 6M between `base` and one of the baseline physics conditions,",
     "using exactly the same settings as those baselines, so the two halves can be compared against them.",
     "Conditions 13-14 also switch the termination bounds mid-run (schedule `env_kwargs`, set in place on the env).",
+    "Conditions 15-17: the remaining reverse directions and a base -> moon -> base recovery run.",
     "Videos: n_eval episodes every video_every steps, at each switch (just before it) and at the end.",
     "Friction note: MuJoCo uses the max of the two touching geoms' friction, so `friction_scale` (all geoms) is used",
     "rather than lowering the floor alone (Hopper's foot is 2.0 and would dominate)."
@@ -93,6 +95,20 @@
        "Ant-v4":      {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [0.2, 2.5]}}]},
        "Humanoid-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [1.0, 3.5]}}]}
      }},
+
+    {"name": "gear2x_to_base", "n_runs": 3,
+     "_": "15. `gear2x` physics for 6M steps, then base (actuators halve in strength)",
+     "env_mods": {"gear_scale": 2.0},
+     "schedule": [{"step": 6000000, "mods": {"gear_scale": 1.0}}]},
+
+    {"name": "slippery_to_base", "n_runs": 3,
+     "_": "16. `slippery` physics for 6M steps, then base (friction back to normal)",
+     "env_mods": {"friction_scale": 0.3},
+     "schedule": [{"step": 6000000, "mods": {"friction_scale": 1.0}}]},
+
+    {"name": "base_moon_base", "n_runs": 2,
+     "_": "17. there and back: base for 4M, Moon gravity for 4M, base again for 4M (recovery after a shift)",
+     "schedule": [{"step": 4000000, "mods": {"gravity": -1.62}}, {"step": 8000000, "mods": {"gravity": -9.81}}]},
 
     {"name": "moon_adapted_to_base", "n_runs": 3,
      "_": "14. `moon_adapted` for 6M steps, then base physics and default termination bounds",
