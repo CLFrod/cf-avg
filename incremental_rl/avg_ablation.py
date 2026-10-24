@@ -285,6 +285,48 @@ class AVG:
         torch.save(model, "%s/%s.pt" % (model_dir, unique_str))
 
 
+def make_video_recorder(args, train_env, agent, schedule, expt):
+    """record(step) writes <run_id>_video_<step>.mp4 (--n_eval episodes). It uses a separate env with the
+    training normaliser's statistics copied in and frozen, and the physics mods currently in effect, and it
+    restores the RNG states afterwards, so training (and resume bit-exactness) is unaffected. A render
+    failure (no OpenGL on a headless node) disables videos for the run instead of crashing it."""
+    state = {"env": None, "disabled": False}
+
+    def record(step):
+        if args.n_eval <= 0 or args.do_not_save or state["disabled"]:
+            return
+        rng = torch.get_rng_state(), np.random.get_state()
+        try:
+            if state["env"] is None:
+                e = make_env(args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480)
+                e = gym.wrappers.FlattenObservation(e)
+                if args.normalize_obs:
+                    e = NormalizeObservation(e)
+                    e.update_running_mean = False
+                e = ClipAction(e)
+                e.reset(seed=args.seed + 10_000)
+                state["env"] = e
+            e = state["env"]
+            apply_env_mods(e, schedule.current_mods)
+            train_norm = ckpt.find_wrapper(train_env, NormalizeObservation)
+            if train_norm is not None:
+                eval_norm = ckpt.find_wrapper(e, NormalizeObservation)
+                eval_norm.obs_rms.mean[:] = train_norm.obs_rms.mean
+                eval_norm.obs_rms.var[:] = train_norm.obs_rms.var
+                eval_norm.obs_rms.count = train_norm.obs_rms.count
+            fname = f"{args.results_dir}/{expt.run_id}_video_{human_format_numbers(step)}.mp4"
+            print(f"[video] step {step}: recording {args.n_eval} episode(s) -> {fname}")
+            record_video(e, agent, num_episodes=args.n_eval, video_filename=fname)
+        except Exception as ex:
+            print(f"[video] recording failed ({type(ex).__name__}: {ex}); videos disabled for this run")
+            state["disabled"] = True
+        finally:
+            torch.set_rng_state(rng[0])
+            np.random.set_state(rng[1])
+
+    return record
+
+
 def episode_row(episode, step, ep_len, ret, ep_duration, wall_time, stats, partial=0):
     """One metrics.csv row: x-axis columns first, then the agent's per-episode stats"""
     row = {
@@ -318,7 +360,7 @@ def main(args):
     # See docs/env_modifications.md
     env = make_env(args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480)
     applied = apply_env_mods(env, args.env_mods)
-    schedule = Schedule(env, args.schedule)
+    schedule = Schedule(env, args.schedule, initial_mods=args.env_mods)
     print(f"[env_mods] step 0: applied {applied} -> {describe_env(env)}")
     if schedule.entries:
         print(f"[env_mods] schedule: {schedule.entries}")
@@ -353,6 +395,11 @@ def main(args):
         dir=f"{args.results_dir}",
     )
 
+    # Videos (--n_eval episodes each) every --video_every steps, at every physics switch, and at the end
+    record = make_video_recorder(args, env, agent, schedule, expt)
+    video_steps = set(range(args.video_every, args.N, args.video_every)) if args.video_every else set()
+    video_steps |= set(schedule.switch_steps)
+
     # Interaction
     rets, ep_steps = [], []
     i_episode, ret, step = 0, 0, 0
@@ -372,7 +419,7 @@ def main(args):
     )  # convert each observation once; it is reused as next step's obs
     ep_tic = time.time()
     try:
-        for t in schedule.steps(args.N, start=t0):  # == range(t0, N); physics mods are applied between segments
+        for t in schedule.steps(args.N, start=t0, at=video_steps, callback=record):  # == range(t0, N)
             # N.B: Action is a torch.Tensor
             action, action_info = agent.compute_action(obs_t)
             sim_action = action.detach().cpu().view(-1).numpy()
@@ -479,11 +526,9 @@ def main(args):
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time() - tic))
     wandb.finish()
 
-    # Eval
-    if args.n_eval:
-        fname = f"{args.results_dir}/{expt.run_id}.mp4"
-        fname = fname.replace("dm_control/", "")
-        record_video(env, agent, num_episodes=args.n_eval, video_filename=fname)
+    # Final video (not when stopped by the time limit: the resumed run records it at the end)
+    if not stopped_early:
+        record(t + 1)
 
     return ep_steps, rets
 
@@ -544,7 +589,11 @@ def get_parser(add_help=True):
     parser.add_argument("--pnorm", action="store_true", default=False)
     parser.add_argument("--scaled_td", action="store_true", default=False)
     parser.add_argument(
-        "--n_eval", default=0, type=int, help="Number of evaluation episodes to record"
+        "--n_eval", default=0, type=int,
+        help="Episodes per video. Videos are recorded every --video_every steps, at each physics switch, and at the end",
+    )
+    parser.add_argument(
+        "--video_every", default=0, type=int, help="Record a video every this many steps (0 = only at switches/end)"
     )
     parser.add_argument(
         "--n_threads",

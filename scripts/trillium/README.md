@@ -92,7 +92,9 @@ jobperf <JOBID>        # CPU usage should be ~188 cores busy
 
 ## Notes
 
-- `--n_eval > 0` (videos) needs headless OpenGL; the job script sets `MUJOCO_GL=osmesa`, but check OSMesa
-  is installed on the nodes first. Otherwise record videos afterwards from saved models (`--save_model`).
+- Videos (`n_eval` episodes every `video_every` steps, at each physics switch and at the end, as
+  `<run_id>_video_<step>.mp4` in the run folder) need headless OpenGL; the job script sets `MUJOCO_GL=osmesa`.
+  Check OSMesa is installed on the nodes (`ldconfig -p | grep -i osmesa`; try `egl` otherwise). If rendering
+  fails, the run logs `[video] recording failed ...` and carries on without videos: training is never affected.
 - wandb: leave `--wandb_mode disabled`, or use `offline` and `wandb sync` from a login node.
 - `pyproject.toml` pulls CUDA builds of torch on Linux. They work on CPU nodes, just a larger download.

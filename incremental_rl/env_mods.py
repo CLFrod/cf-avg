@@ -155,8 +155,9 @@ def describe(env):
 class Schedule:
     """ Physics mods applied at given steps. entries: [{"step": int, "mods": {...}}, ...] """
 
-    def __init__(self, env, entries, log=print):
+    def __init__(self, env, entries, log=print, initial_mods=None):
         self.env, self.log = env, log
+        self.current_mods = dict(initial_mods or {})   # every mod in effect so far (step-0 mods + applied entries)
         entries = sorted(entries or [], key=lambda e: e["step"])
         for e in entries:
             if e["step"] <= 0:
@@ -171,18 +172,26 @@ class Schedule:
     def switch_steps(self):
         return [e["step"] for e in self.entries]
 
-    def steps(self, n, start=0):
+    def steps(self, n, start=0, at=(), callback=None):
         """ Yields start..n-1, applying each entry's mods just before its step. No per-step check: each segment
-        between switches is a plain range(). Entries at or before `start` are applied up front (resume) """
+        between events is a plain range(). `callback(step)` is called when a step in `at` is reached (and before
+        the mods of a switch at that step are applied). Entries at or before `start` are re-applied up front
+        without callbacks (resume) """
+        mods_at = {e["step"]: e["mods"] for e in self.entries}
+        at = set(at)
         prev = 0
-        for e in self.entries:
-            if e["step"] >= n:
+        for s in sorted(mods_at.keys() | at):
+            if s >= n:
                 break
-            if e["step"] > start:
-                yield from range(max(prev, start), e["step"])
-            applied = apply(self.env, e["mods"])
-            self.log(f"[env_mods] step {e['step']}: applied {applied} -> {describe(self.env)}")
-            prev = e["step"]
+            if s > start:
+                yield from range(max(prev, start), s)
+                if callback and s in at:
+                    callback(s)
+            if s in mods_at:
+                applied = apply(self.env, mods_at[s])
+                self.current_mods.update(mods_at[s])
+                self.log(f"[env_mods] step {s}: applied {applied} -> {describe(self.env)}")
+            prev = s
         yield from range(max(prev, start), n)
 
 

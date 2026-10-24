@@ -20,7 +20,7 @@ CKPT_FILE, META_FILE = "checkpoint.pt", "checkpoint.json"
 SCALER_STATS = ("gamma_rms", "return_sq_rms", "reward_rms", "return_rms")
 
 
-def _find_wrapper(env, cls):
+def find_wrapper(env, cls):
     w = env
     while w is not None:
         if isinstance(w, cls):
@@ -43,7 +43,7 @@ def read_meta(run_dir):
 
 
 def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_id, N, complete=False):
-    norm = _find_wrapper(env, NormalizeObservation)
+    norm = find_wrapper(env, NormalizeObservation)
     scaler = agent.td_error_scaler
     state = {
         "step": step, "episode": episode, "run_id": run_id, "N": N, "wall_time": wall_time,
@@ -90,7 +90,7 @@ def restore(state, agent, env):
         rs = getattr(agent.td_error_scaler, k)
         rs.n, rs.m, rs.s = d["n"], d["m"], d["s"]
 
-    norm = _find_wrapper(env, NormalizeObservation)
+    norm = find_wrapper(env, NormalizeObservation)
     if state["obs_rms"] is not None:
         if norm is None:
             raise ValueError("checkpoint has NormalizeObservation stats but the env is not normalized (--normalize_obs)")
