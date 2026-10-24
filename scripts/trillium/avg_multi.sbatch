@@ -58,7 +58,7 @@ export MPLCONFIGDIR=$SCRATCH/.cache/matplotlib   # matplotlib's font cache: ~/.c
 mkdir -p "$MPLCONFIGDIR" "$RESULTS_DIR"
 # No internet on compute nodes: keep --wandb_mode disabled (default) or use offline + `wandb sync` from a login node
 # Videos (--n_eval > 0) render off-screen on the CPU through OSMesa (loaded above with StdEnv/2023).
-echo "Job $SLURM_JOB_ID on $(hostname): $(nproc) CPUs in allocation"
+echo "Job ${SLURM_JOB_ID:-(interactive)} on $(hostname): $(nproc) CPUs in allocation"
 
 # Render self-check. N.B. with MUJOCO_GL=osmesa and no libOSMesa, `import mujoco` itself fails, which would kill
 # every run at startup. So: try OSMesa; if it fails, fall back to MUJOCO_GL=disable (no GL at all): training
