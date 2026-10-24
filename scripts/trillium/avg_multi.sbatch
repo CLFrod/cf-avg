@@ -51,20 +51,24 @@ export MPLCONFIGDIR=$SCRATCH/.cache/matplotlib   # matplotlib's font cache: ~/.c
 mkdir -p "$MPLCONFIGDIR" "$RESULTS_DIR"
 # No internet on compute nodes: keep --wandb_mode disabled (default) or use offline + `wandb sync` from a login node
 # Videos (--n_eval > 0) render off-screen on the CPU through OSMesa, which is what Trillium supports.
-# If libOSMesa comes from a module rather than the system, load it here (find it with `module spider mesa`):
+# libOSMesa must be loadable: if it comes from a module, load it here (find it with `module spider mesa`):
 # module load mesa/<version>
-export MUJOCO_GL=osmesa
-
 echo "Job $SLURM_JOB_ID on $(hostname): $(nproc) CPUs in allocation"
-# Render self-check: one line in this log saying whether videos will work (training runs either way)
-python - <<'EOF'
-try:
-    import gymnasium as gym
-    e = gym.make("Hopper-v4", render_mode="rgb_array", width=640, height=480); e.reset(seed=0); frame = e.render(); e.close()
-    print(f"OSMesa render OK: frame {frame.shape}")
-except Exception as ex:
-    print(f"OSMesa render FAILED ({type(ex).__name__}: {ex}); runs will train without videos")
+
+# Render self-check. N.B. with MUJOCO_GL=osmesa and no libOSMesa, `import mujoco` itself fails, which would kill
+# every run at startup. So: try OSMesa; if it fails, fall back to MUJOCO_GL=disable (no GL at all): training
+# runs normally, videos are skipped (each run logs "[video] recording failed").
+export MUJOCO_GL=osmesa
+if python - <<'EOF'
+import gymnasium as gym
+e = gym.make("Hopper-v4", render_mode="rgb_array", width=640, height=480); e.reset(seed=0); f = e.render(); e.close()
+assert f.shape == (480, 640, 3), f.shape
+print(f"OSMesa render OK: frame {f.shape}")
 EOF
+then :; else
+    echo "OSMesa render FAILED: libOSMesa not loadable (see traceback above). Falling back to MUJOCO_GL=disable: NO VIDEOS."
+    export MUJOCO_GL=disable
+fi
 python -m incremental_rl.avg_multi_experiment "${MODE_ARGS[@]}" \
     --name "$NAME" --results_dir "$RESULTS_DIR" \
     --n_runs "$N_RUNS" --start_seed "$START_SEED" \

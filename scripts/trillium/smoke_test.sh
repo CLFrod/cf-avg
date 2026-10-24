@@ -25,12 +25,19 @@ tic=$(date +%s)
 step() { echo; echo "== $*"; }
 
 step "1/4 OSMesa render check (MUJOCO_GL=$MUJOCO_GL)"
-python - <<'EOF'
+if python - <<'EOF'
 import gymnasium as gym
 e = gym.make("Hopper-v4", render_mode="rgb_array", width=640, height=480); e.reset(seed=0); f = e.render(); e.close()
 assert f.shape == (480, 640, 3) and f.mean() > 0, f.shape
 print(f"render OK: frame {f.shape}")
 EOF
+then VIDEOS=yes; else
+    VIDEOS=no
+    echo
+    echo "render FAILED: libOSMesa is not loadable. Find its module with \`module spider mesa\` / \`module spider osmesa\`,"
+    echo "load it, and rerun. Continuing with MUJOCO_GL=disable (training works, no videos) so the other checks still run."
+    export MUJOCO_GL=disable
+fi
 
 step "2/4 real config resolves"
 python -m incremental_rl.avg_multi_experiment --config configs/trillium_dynamics_3env.json --dry_run 2>/dev/null | head -1
@@ -55,6 +62,7 @@ python -m incremental_rl.avg_multi_experiment --resume_from "$OUT/smoke-Hopper-v
     | grep -E "resume from|^\[(done|FAILED)"
 
 step "summary"
+export VIDEOS
 python - "$OUT" <<'EOF'
 import sys, os, csv, glob, json
 out = sys.argv[1]
@@ -67,11 +75,13 @@ for d in sorted(glob.glob(f"{out}/smoke-*")):
     log = open(f"{d}/run.log").read()
     switched = "[env_kwargs] step" in log and "[env_mods] step" in log
     rate = float(rows[-1]["step"]) / float(rows[-1]["wall_time"])
-    status = "OK " if (videos and switched and meta["complete"]) else "BAD"
+    want_videos = os.environ.get("VIDEOS", "yes") == "yes"
+    status = "OK " if ((videos or not want_videos) and switched and meta["complete"]) else "BAD"
     ok &= status == "OK "
     print(f"  {status} {os.path.basename(d):34s} steps {meta['step']:5d} complete={meta['complete']}  episodes {len(rows):4d}  "
           f"{rate:4.0f} steps/s  videos at {videos}  switch applied={switched}")
-print("\nALL OK" if ok else "\nSOMETHING FAILED: see run.log in the folders above")
+print("\nALL OK" + ("" if want_videos else " (except rendering: no videos until libOSMesa is loadable)")
+      if ok else "\nSOMETHING FAILED: see run.log in the folders above")
 print(f"results: {out}")
 EOF
 echo "took $(( $(date +%s) - tic )) s"
