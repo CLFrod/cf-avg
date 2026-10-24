@@ -20,16 +20,16 @@ export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg PYTHONDONTWRITEBYTECOD
 export MPLCONFIGDIR=${MPLCONFIGDIR:-$SCRATCH/.cache/matplotlib}
 mkdir -p "$OUT" "$MPLCONFIGDIR"
 cd "$REPO"
-# libOSMesa comes from StdEnv/2023's Gentoo layer. `module` is a shell function from the login profile; if this
-# script runs in a shell without it, initialise Lmod the way the Alliance profile does.
+# The venv is built on the Alliance python module (see README): same Gentoo-layer libraries as libOSMesa.
+# `module` is a shell function from the login profile; if this script runs in a shell without it, initialise
+# Lmod the way the Alliance profile does.
 if ! type module &>/dev/null && [ -f /cvmfs/soft.computecanada.ca/config/profile/bash.sh ]; then
     source /cvmfs/soft.computecanada.ca/config/profile/bash.sh
 fi
 if type module &>/dev/null; then
-    module load StdEnv/2023
-    export LD_LIBRARY_PATH="$EBROOTGENTOO/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    module load StdEnv/2023 python/3.13
 else
-    echo "note: no \`module\` command in this shell (not on an Alliance cluster?); skipping StdEnv/2023"
+    echo "note: no \`module\` command in this shell (not on an Alliance cluster?); using .venv as is"
 fi
 source .venv/bin/activate
 tic=$(date +%s)

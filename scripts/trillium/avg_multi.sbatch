@@ -44,9 +44,9 @@ MODE_ARGS=()
 [ -n "$SHARD" ] && MODE_ARGS+=(--shard "$SHARD")
 
 cd "$REPO"
-# libOSMesa (off-screen CPU rendering for videos) lives in StdEnv/2023's Gentoo layer: $EBROOTGENTOO/lib64
-module load StdEnv/2023
-export LD_LIBRARY_PATH="$EBROOTGENTOO/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# The venv is built on the Alliance python module (see README): same Gentoo-layer libraries as libOSMesa, which
+# off-screen video rendering needs. The module must be loaded for the venv's interpreter to run.
+module load StdEnv/2023 python/3.13
 source .venv/bin/activate
 
 export PYTHONDONTWRITEBYTECODE=1   # can't write __pycache__ to read-only home

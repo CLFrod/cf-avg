@@ -10,20 +10,18 @@ AVG does one tiny update per env step, so a run can't use more than ~1 core. The
 ## One-time setup (login node)
 
 ```bash
-cd $HOME && git clone https://github.com/CLFrod/cf-avg.git && cd cf-avg
-curl -LsSf https://astral.sh/uv/install.sh | sh   # if uv isn't already available
-uv sync                                           # builds .venv (Python 3.13 + deps) on the login node
+cd $HOME && git clone -b optimize_logging https://github.com/CLFrod/cf-avg.git && cd cf-avg
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env   # uv itself: user-space binary
+module load StdEnv/2023 python/3.13       # the interpreter: Alliance's python, built in the Gentoo layer
+uv sync --python "$(which python)"        # exact versions from uv.lock, installed into a venv on that python
 ```
 
-No module is needed for Python: `uv` is a user-space binary and brings its own Python, and `uv sync` reproduces
-the exact versions in `uv.lock`. The one module the scripts load is `StdEnv/2023`, whose Gentoo layer provides
-`libOSMesa` (`$EBROOTGENTOO/lib64`) for off-screen video rendering. If you prefer the Alliance's standard route
-instead, `requirements.txt` pins the same versions:
-
-```bash
-module load python/3.13 && python -m venv $HOME/cf-avg-venv && source $HOME/cf-avg-venv/bin/activate
-pip install -r requirements.txt && pip install -e .      # then use this venv in place of .venv in the scripts
-```
+Why the module's Python rather than uv's own: off-screen video rendering loads `libOSMesa` from the Gentoo
+layer (`$EBROOTGENTOO/lib64`), and a library from that layer can only be loaded into a Python built in the same
+layer (uv's standalone Python uses the system libc and segfaults). uv still pins every package to `uv.lock`.
+Both scripts load `StdEnv/2023 python/3.13` before activating `.venv`, since the venv's interpreter is the
+module's. The pure-pip equivalent, if ever needed: `pip install -r requirements.txt && pip install -e .` in a
+`python -m venv` made from the same module.
 
 ## 1a. Smoke test (login node, ~1 min, 3 cores)
 
