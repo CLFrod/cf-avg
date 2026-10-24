@@ -44,15 +44,16 @@ MODE_ARGS=()
 [ -n "$SHARD" ] && MODE_ARGS+=(--shard "$SHARD")
 
 cd "$REPO"
+# libOSMesa (off-screen CPU rendering for videos) lives in StdEnv/2023's Gentoo layer: $EBROOTGENTOO/lib64
+module load StdEnv/2023
+export LD_LIBRARY_PATH="$EBROOTGENTOO/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 source .venv/bin/activate
 
 export PYTHONDONTWRITEBYTECODE=1   # can't write __pycache__ to read-only home
 export MPLCONFIGDIR=$SCRATCH/.cache/matplotlib   # matplotlib's font cache: ~/.cache is read-only on compute nodes
 mkdir -p "$MPLCONFIGDIR" "$RESULTS_DIR"
 # No internet on compute nodes: keep --wandb_mode disabled (default) or use offline + `wandb sync` from a login node
-# Videos (--n_eval > 0) render off-screen on the CPU through OSMesa, which is what Trillium supports.
-# libOSMesa must be loadable: if it comes from a module, load it here (find it with `module spider mesa`):
-# module load mesa/<version>
+# Videos (--n_eval > 0) render off-screen on the CPU through OSMesa (loaded above with StdEnv/2023).
 echo "Job $SLURM_JOB_ID on $(hostname): $(nproc) CPUs in allocation"
 
 # Render self-check. N.B. with MUJOCO_GL=osmesa and no libOSMesa, `import mujoco` itself fails, which would kill

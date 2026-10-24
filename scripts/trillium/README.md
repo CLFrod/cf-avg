@@ -16,8 +16,9 @@ uv sync                                           # builds .venv (Python 3.13 + 
 ```
 
 No module is needed for Python: `uv` is a user-space binary and brings its own Python, and `uv sync` reproduces
-the exact versions in `uv.lock`. The only module that may be needed is for OSMesa (see Notes). If you prefer the
-Alliance's standard route instead, `requirements.txt` pins the same versions:
+the exact versions in `uv.lock`. The one module the scripts load is `StdEnv/2023`, whose Gentoo layer provides
+`libOSMesa` (`$EBROOTGENTOO/lib64`) for off-screen video rendering. If you prefer the Alliance's standard route
+instead, `requirements.txt` pins the same versions:
 
 ```bash
 module load python/3.13 && python -m venv $HOME/cf-avg-venv && source $HOME/cf-avg-venv/bin/activate
@@ -112,10 +113,10 @@ jobperf <JOBID>        # CPU usage should be ~188 cores busy
 ## Notes
 
 - Videos (`n_eval` episodes every `video_every` steps, at each physics switch and whenever training ceases, as
-  `<run_id>_video_<step>.mp4` in the run folder) render off-screen on the CPU through OSMesa, which Trillium
-  supports; the job script sets `MUJOCO_GL=osmesa` and prints `OSMesa render OK` / `FAILED` at the top of the
-  Slurm log. If it fails, `module spider mesa` and add the `module load` line in the script. A failure never
-  affects training: the run logs `[video] recording failed ...` and carries on without videos.
+  `<run_id>_video_<step>.mp4` in the run folder) render off-screen on the CPU through OSMesa: the job script
+  loads `StdEnv/2023` (which provides `libOSMesa`), sets `MUJOCO_GL=osmesa`, and prints `OSMesa render OK` /
+  `FAILED` at the top of the Slurm log. On failure it falls back to `MUJOCO_GL=disable`: training is unaffected,
+  the runs just log `[video] recording failed ...` and produce no videos.
   Cost: software rendering is ~20–60 s per 2-episode video, a few minutes per 12M-step run.
 - wandb: leave `--wandb_mode disabled`, or use `offline` and `wandb sync` from a login node.
 - `pyproject.toml` pulls CUDA builds of torch on Linux. They work on CPU nodes, just a larger download.
