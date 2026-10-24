@@ -48,11 +48,21 @@ source .venv/bin/activate
 
 export PYTHONDONTWRITEBYTECODE=1   # can't write __pycache__ to read-only home
 # No internet on compute nodes: keep --wandb_mode disabled (default) or use offline + `wandb sync` from a login node
-# Only needed for --n_eval > 0 (video recording); compute nodes are headless.
-# Check that OSMesa is available (`ldconfig -p | grep -i osmesa`) before relying on this.
-export MUJOCO_GL=osmesa PYOPENGL_PLATFORM=osmesa
+# Videos (--n_eval > 0) render off-screen on the CPU through OSMesa, which is what Trillium supports.
+# If libOSMesa comes from a module rather than the system, load it here (find it with `module spider mesa`):
+# module load mesa/<version>
+export MUJOCO_GL=osmesa
 
 echo "Job $SLURM_JOB_ID on $(hostname): $(nproc) CPUs in allocation"
+# Render self-check: one line in this log saying whether videos will work (training runs either way)
+python - <<'EOF'
+try:
+    import gymnasium as gym
+    e = gym.make("Hopper-v4", render_mode="rgb_array"); e.reset(seed=0); frame = e.render(); e.close()
+    print(f"OSMesa render OK: frame {frame.shape}")
+except Exception as ex:
+    print(f"OSMesa render FAILED ({type(ex).__name__}: {ex}); runs will train without videos")
+EOF
 python -m incremental_rl.avg_multi_experiment "${MODE_ARGS[@]}" \
     --name "$NAME" --results_dir "$RESULTS_DIR" \
     --n_runs "$N_RUNS" --start_seed "$START_SEED" \

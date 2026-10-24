@@ -92,9 +92,11 @@ jobperf <JOBID>        # CPU usage should be ~188 cores busy
 
 ## Notes
 
-- Videos (`n_eval` episodes every `video_every` steps, at each physics switch and at the end, as
-  `<run_id>_video_<step>.mp4` in the run folder) need headless OpenGL; the job script sets `MUJOCO_GL=osmesa`.
-  Check OSMesa is installed on the nodes (`ldconfig -p | grep -i osmesa`; try `egl` otherwise). If rendering
-  fails, the run logs `[video] recording failed ...` and carries on without videos: training is never affected.
+- Videos (`n_eval` episodes every `video_every` steps, at each physics switch and whenever training ceases, as
+  `<run_id>_video_<step>.mp4` in the run folder) render off-screen on the CPU through OSMesa, which Trillium
+  supports; the job script sets `MUJOCO_GL=osmesa` and prints `OSMesa render OK` / `FAILED` at the top of the
+  Slurm log. If it fails, `module spider mesa` and add the `module load` line in the script. A failure never
+  affects training: the run logs `[video] recording failed ...` and carries on without videos.
+  Cost: software rendering is ~20–60 s per 2-episode video, a few minutes per 12M-step run.
 - wandb: leave `--wandb_mode disabled`, or use `offline` and `wandb sync` from a login node.
 - `pyproject.toml` pulls CUDA builds of torch on Linux. They work on CPU nodes, just a larger download.
