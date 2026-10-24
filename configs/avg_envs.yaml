@@ -1,0 +1,53 @@
+# Multi-environment AVG experiment for avg_multi_experiment.py
+#
+#   python -m incremental_rl.avg_multi_experiment --config configs/avg_envs.yaml
+#   python -m incremental_rl.avg_multi_experiment --config configs/avg_envs.yaml --N 2000 --do_not_save   # smoke test
+#
+# Precedence (low -> high): avg_ablation defaults < `defaults` below < experiment entry < command-line args.
+# Any avg_ablation argument can appear at either level; flags (normalize_obs, pnorm, ...) are true/false.
+# `seeds` is a count (from start_seed) or an explicit list. Each experiment needs a unique `name` and an `env`.
+#
+# Hyperparameters below are the ones used in the AVG paper (README table): hyp_seed 122 for Hopper/Walker2d,
+# hyp_seed 129 for Ant/HalfCheetah/Humanoid.
+
+defaults:
+  N: 12000000
+  gamma: 0.99
+  beta1: 0.0
+  normalize_obs: true
+  pnorm: true
+  scaled_td: true
+  seeds: 30
+  vlines: [3000000, 6000000, 9000000]
+
+experiments:
+  - name: hopper
+    env: Hopper-v4
+    actor_lr: 1.1e-5
+    critic_lr: 7.7e-5
+    alpha_lr: 0.3
+
+  - name: walker
+    env: Walker2d-v4
+    actor_lr: 1.1e-5
+    critic_lr: 7.7e-5
+    alpha_lr: 0.3
+
+  - name: ant
+    env: Ant-v4
+    actor_lr: 0.0063
+    critic_lr: 0.0087
+    alpha_lr: 0.07
+
+  - name: halfcheetah
+    env: HalfCheetah-v4
+    actor_lr: 0.0063
+    critic_lr: 0.0087
+    alpha_lr: 0.07
+
+  - name: humanoid
+    env: Humanoid-v4
+    actor_lr: 0.0063
+    critic_lr: 0.0087
+    alpha_lr: 0.07
+    seeds: 20
