@@ -2,18 +2,16 @@
 # Run many seeds of avg_ablation on one full Trillium CPU node (192 cores), one pinned core per run.
 #
 # Submit from a directory in $SCRATCH (home is read-only on compute nodes, so Slurm's output file must
-# land in scratch):
+# land in scratch). With no arguments it runs configs/trillium_dynamics_3env.json:
 #   cd $SCRATCH/avg_jobs && sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
 #
-# Edit NAME / RUN_ARGS below, or override at submit time, e.g.
-#   sbatch --export=ALL,NAME=moon_earth,N_RUNS=188 avg_multi.sbatch
-# Several environments with their own hyperparameters: point CONFIG at a YAML (see configs/avg_envs.yaml);
-# RUN_ARGS then act as overrides for every experiment in it (leave empty for none):
-#   sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml avg_multi.sbatch
-# Runs stop cleanly at TIME_LIMIT hours with a checkpoint. To continue them in a new job:
-#   sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/gravity-*-20261024_*" avg_multi.sbatch
-# (add --dependency=afterany:<jobid> to queue the continuation behind the first job automatically)
-# More runs than one node holds: submit one job per slice, e.g. SHARD=1/2 and SHARD=2/2 (same CONFIG).
+# Everything else is optional, set through environment variables (Slurm's --export=ALL,VAR=value):
+#   a different experiment file:      sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml avg_multi.sbatch
+#   continue runs stopped at the time limit (TIME_LIMIT hours, default 23.5) in a new job:
+#                                      sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*" avg_multi.sbatch
+#     (add --dependency=afterany:<jobid> to queue it behind the first job automatically)
+#   more runs than one node holds:    one job per slice, SHARD=1/2 and SHARD=2/2 (same CONFIG)
+#   a single experiment without a config: CONFIG= plus RUN_ARGS="--env Hopper-v4 --N 12000000 ..." and NAME/N_RUNS
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
@@ -30,7 +28,7 @@ NAME=${NAME:-avg_multi}
 N_RUNS=${N_RUNS:-188}
 START_SEED=${START_SEED:-0}
 RESERVE_CORES=${RESERVE_CORES:-4}              # launcher + OS + file I/O
-CONFIG=${CONFIG:-}                             # multi-experiment YAML/JSON; empty = single experiment from RUN_ARGS
+CONFIG=${CONFIG-$REPO/configs/trillium_dynamics_3env.json}   # the experiment; CONFIG= (empty) -> single run from RUN_ARGS
 RESUME_FROM=${RESUME_FROM:-}                   # glob of run folders to continue from their checkpoints
 TIME_LIMIT=${TIME_LIMIT:-23.5}                 # hours: runs checkpoint and exit cleanly before the 24 h walltime
 RUN_ARGS=${RUN_ARGS-}

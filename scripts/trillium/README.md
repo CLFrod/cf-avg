@@ -49,9 +49,11 @@ Use the full-node number to check `--N` fits in 24 h: `hours ≈ N / steps_per_s
 
 ```bash
 mkdir -p $SCRATCH/avg_jobs && cd $SCRATCH/avg_jobs
-sbatch --export=ALL,NAME=moon_earth,RUN_ARGS="--env Hopper-v4 --N 12000000 --normalize_obs --pnorm --scaled_td" \
-    $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
+sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sbatch      # runs configs/trillium_dynamics_3env.json
 ```
+
+Other experiments or a single hand-written run are selected with environment variables
+(`sbatch --export=ALL,CONFIG=... avg_multi.sbatch`); see the header of the script.
 
 Results: `$SCRATCH/results/<NAME>-<seed>-<date>/`. Launcher output: `$SCRATCH/avg_jobs/avg_multi_<jobid>.out`.
 
