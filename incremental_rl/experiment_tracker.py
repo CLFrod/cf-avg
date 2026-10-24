@@ -8,11 +8,12 @@ from gymnasium import Env
 
 
 class ExperimentTracker:
-    def __init__(self, args):
+    def __init__(self, args, run_id=None):
         self.args = args
         self.args.git_hash = get_git_hash()
-        #### Unique IDs
-        self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + f"-{args.algo}-{args.env}_seed-{args.seed}"
+        #### Unique IDs (a resumed run keeps its original id, so its files are continued rather than recreated)
+        self.resumed = run_id is not None
+        self.run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S") + f"-{args.algo}-{args.env}_seed-{args.seed}"
         self.lc_path = f"{args.results_dir}/{self.run_id}_learning_curve.png"
         self.rets_path = f"{args.results_dir}/{self.run_id}_returns.txt"
         self.args_path = f"{args.results_dir}/{self.run_id}_args.json"
@@ -35,9 +36,11 @@ class ExperimentTracker:
         if self.args.do_not_save:
             return
         if self._metrics_writer is None:
-            self._metrics_file = open(self.metrics_path, 'w', newline='')
+            append = self.resumed and os.path.exists(self.metrics_path)
+            self._metrics_file = open(self.metrics_path, 'a' if append else 'w', newline='')
             self._metrics_writer = csv.DictWriter(self._metrics_file, fieldnames=list(row.keys()))
-            self._metrics_writer.writeheader()
+            if not append:
+                self._metrics_writer.writeheader()
         self._metrics_writer.writerow(row)
         self._metrics_file.flush()
 

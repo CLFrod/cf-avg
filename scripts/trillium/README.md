@@ -48,6 +48,25 @@ Runs land in `$SCRATCH/results/<experiment name>-<env>-<seed>-<date>/`. Keep the
 experiments at or below 188 per job, or the extras queue until a core frees up (and must still finish
 inside the 24 h walltime).
 
+## Resuming after the 24 h walltime
+
+Every run writes `checkpoint.pt` + `checkpoint.json` in its folder every `--checkpoint` steps (50k, i.e. every
+few minutes) and stops cleanly at `TIME_LIMIT` hours (default 23.5) with a final checkpoint. The checkpoint
+holds the networks, both Adam states, the TD-error scaler, the observation normaliser and all RNG states, so a
+resumed run is bit-identical to one that was never interrupted (physics schedule included). To continue every
+run of a job in a new job:
+
+```bash
+sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/gravity-*-20261024_*" $HOME/cf-avg/scripts/trillium/avg_multi.sbatch
+# or queue it behind the first job right away:
+sbatch --dependency=afterany:<first jobid> --export=ALL,RESUME_FROM="..." avg_multi.sbatch
+```
+
+Finished runs are skipped (`checkpoint.json` has `"complete": true`), the rest continue from their last
+checkpoint, appending to the same `metrics.csv`. Arguments given to the resume job (e.g. `RUN_ARGS="--N 20000000"`)
+override the stored ones, so a finished run can also be extended. Check progress of a batch with
+`grep -h '"step"' $SCRATCH/results/gravity-*/checkpoint.json`.
+
 ## 3. Plot
 
 Every run writes `<run_id>_metrics.csv`: one row per episode (`step`, `return`, `ep_len`, `wall_time`, episode

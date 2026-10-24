@@ -20,6 +20,7 @@ from incremental_rl.utils import (
 )
 from incremental_rl.experiment_tracker import ExperimentTracker, record_video
 from incremental_rl.env_mods import make_env, Schedule, apply as apply_env_mods, describe as describe_env
+from incremental_rl import checkpoint as ckpt
 
 # Skip torch.distributions' per-call argument validation (shape/positive-definiteness checks on every step)
 torch.distributions.Distribution.set_default_validate_args(False)
@@ -304,7 +305,13 @@ def main(args):
 
     if args.vlines is None:  # mark the physics switches on the learning curve unless told otherwise
         args.vlines = sorted(e["step"] for e in args.schedule)
-    expt = ExperimentTracker(args)  # writes args.json
+
+    # Resume: continue the run in args.resume from its checkpoint, keeping its run id (same metrics.csv etc.)
+    saved = ckpt.load(args.resume) if args.resume else None
+    if saved is not None and saved["step"] >= args.N:
+        print(f"[resume] {args.resume} is already complete ({saved['step']} >= N={args.N}); nothing to do")
+        return saved["ep_steps"], saved["rets"]
+    expt = ExperimentTracker(args, run_id=saved["run_id"] if saved else None)  # writes args.json
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
     # Env: reward/termination via constructor kwargs, physics via env_mods (now) and schedule (at given steps).
@@ -349,6 +356,15 @@ def main(args):
     # Interaction
     rets, ep_steps = [], []
     i_episode, ret, step = 0, 0, 0
+    t0 = 0
+    if saved is not None:
+        ckpt.restore(saved, agent, env)
+        t0, i_episode = saved["step"], saved["episode"]
+        rets, ep_steps = list(saved["rets"]), list(saved["ep_steps"])
+        tic = time.time() - saved["wall_time"]  # wall_time column continues from the saved run
+        expt.step_on_save = t0
+        print(f"[resume] continuing {expt.run_id} from step {t0} (episode {i_episode}, {saved['wall_time']/3600:.2f} h so far)")
+    proc_tic, last_ckpt, stopped_early = time.time(), t0, False
     terminated, truncated = False, False
     obs, _ = env.reset()
     obs_t = agent.to_tensor(
@@ -356,7 +372,7 @@ def main(args):
     )  # convert each observation once; it is reused as next step's obs
     ep_tic = time.time()
     try:
-        for t in schedule.steps(args.N):  # == range(args.N); physics mods are applied between segments
+        for t in schedule.steps(args.N, start=t0):  # == range(t0, N); physics mods are applied between segments
             # N.B: Action is a torch.Tensor
             action, action_info = agent.compute_action(obs_t)
             sim_action = action.detach().cpu().view(-1).numpy()
@@ -402,6 +418,19 @@ def main(args):
                 expt.log_episode(row)
                 expt.checkpoint(t, rets, ep_steps)
 
+                # Resume checkpoint every args.checkpoint steps, and a clean stop at the time limit (episode
+                # boundaries only, so no per-step check and the saved state needs no mid-episode sim state)
+                out_of_time = args.time_limit and time.time() - proc_tic > args.time_limit * 3600
+                if not args.do_not_save and (t + 1 - last_ckpt >= args.checkpoint or out_of_time):
+                    ckpt.save(args.results_dir, step=t + 1, episode=i_episode, agent=agent, env=env, rets=rets,
+                              ep_steps=ep_steps, wall_time=time.time() - tic, run_id=expt.run_id, N=args.N)
+                    last_ckpt = t + 1
+                if out_of_time:
+                    stopped_early = True
+                    print(f"[time_limit] {args.time_limit} h reached at step {t + 1}; checkpoint saved. "
+                          f"Continue with --resume {args.results_dir}")
+                    break
+
                 ep_tic = time.time()
                 obs, _ = env.reset()
                 obs_t = agent.to_tensor(obs)
@@ -437,6 +466,12 @@ def main(args):
 
     # Save returns and learning curve before exiting run
     expt.finish(rets, ep_steps)
+    if not args.do_not_save and not stopped_early:
+        # Final checkpoint: marks the run complete, and lets it be extended later with a larger --N (which then
+        # starts a fresh episode at step N; the unfinished episode is already logged as partial)
+        ckpt.save(args.results_dir, step=t + 1, episode=i_episode, agent=agent, env=env, rets=rets,
+                  ep_steps=ep_steps, wall_time=time.time() - tic, run_id=expt.run_id, N=args.N,
+                  complete=t + 1 >= args.N)
 
     if args.save_model:
         agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model")
@@ -530,6 +565,19 @@ def get_parser(add_help=True):
         type=int,
         nargs="*",
         help="Steps marked with a vertical line on the learning curve (default: the schedule's switch steps)",
+    )
+    # Resume
+    parser.add_argument(
+        "--resume",
+        default="",
+        type=str,
+        help="Run folder with a checkpoint.pt to continue from (keeps its run id and metrics.csv)",
+    )
+    parser.add_argument(
+        "--time_limit",
+        default=0.0,
+        type=float,
+        help="Hours of wall time after which the run checkpoints and exits cleanly (0 = no limit)",
     )
     # Environment modifications (JSON strings; see docs/env_modifications.md)
     parser.add_argument(

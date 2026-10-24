@@ -171,18 +171,19 @@ class Schedule:
     def switch_steps(self):
         return [e["step"] for e in self.entries]
 
-    def steps(self, n):
-        """ Yields 0..n-1, applying each entry's mods just before its step. No per-step check: each segment
-        between switches is a plain range() """
+    def steps(self, n, start=0):
+        """ Yields start..n-1, applying each entry's mods just before its step. No per-step check: each segment
+        between switches is a plain range(). Entries at or before `start` are applied up front (resume) """
         prev = 0
         for e in self.entries:
             if e["step"] >= n:
                 break
-            yield from range(prev, e["step"])
+            if e["step"] > start:
+                yield from range(max(prev, start), e["step"])
             applied = apply(self.env, e["mods"])
             self.log(f"[env_mods] step {e['step']}: applied {applied} -> {describe(self.env)}")
             prev = e["step"]
-        yield from range(prev, n)
+        yield from range(max(prev, start), n)
 
 
 def validate(env_id, env_kwargs=None, env_mods=None, schedule=None):

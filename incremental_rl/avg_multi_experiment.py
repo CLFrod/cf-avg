@@ -28,14 +28,14 @@ runs than cores.
 Results: <results_dir>/<experiment name>-<env>-<seed>-<launch time>/ per run.
 """
 
-import os, sys
+import os, sys, glob
 import time, json
 import argparse
 import subprocess
 import numpy as np
 from datetime import datetime
 from incremental_rl.avg_ablation import get_parser
-from incremental_rl import env_mods
+from incremental_rl import env_mods, checkpoint
 
 
 def add_launcher_args(parser):
@@ -93,6 +93,10 @@ def add_launcher_args(parser):
         help="Experiment name (command-line mode): run folder prefix and each run's --description",
     )
     group.add_argument(
+        "--resume_from", default=None, type=str, nargs="+", metavar="GLOB",
+        help="Continue the runs in these folders from their checkpoints (e.g. 'results/gravity-*-20261024_*')",
+    )
+    group.add_argument(
         "--dry_run", action="store_true", help="Print the resolved experiments and exit"
     )
     return parser
@@ -119,16 +123,20 @@ def parse_args():
             "--seed is set per run; use --seeds / --start_seed, or `seeds` in the config"
         )
 
-    if args.config:
-        experiments = load_experiments(args.config)
+    if args.resume_from:
+        if args.config:
+            full_parser.error("--resume_from and --config are exclusive")
+        args.jobs = resume_jobs(args.resume_from, cli_overrides, full_parser)
     else:
-        experiments = [{"name": args.name}]
-    if "--env" in cli_overrides and args.config:
-        print(
-            "WARNING: --env on the command line overrides the env of every experiment in the config"
-        )
-
-    args.jobs = build_jobs(experiments, args, cli_overrides, full_parser)
+        if args.config:
+            experiments = load_experiments(args.config)
+        else:
+            experiments = [{"name": args.name}]
+        if "--env" in cli_overrides and args.config:
+            print(
+                "WARNING: --env on the command line overrides the env of every experiment in the config"
+            )
+        args.jobs = build_jobs(experiments, args, cli_overrides, full_parser)
     n_threads = max(j["hyp"]["n_threads"] for j in args.jobs)
     if n_threads > args.cores_per_run:
         print(
@@ -259,6 +267,44 @@ def build_jobs(experiments, args, cli_overrides, full_parser):
     return jobs
 
 
+def resume_jobs(patterns, cli_overrides, full_parser):
+    """Jobs that continue existing run folders (launched by this script) from their checkpoints"""
+    validator = get_parser(add_help=False)
+    validator.exit_on_error = False
+    dirs = sorted(d for p in patterns for d in glob.glob(p) if os.path.isdir(d))
+    if not dirs:
+        full_parser.error(f"--resume_from: no run folders match {patterns}")
+    jobs, skipped = [], []
+    for d in dirs:
+        try:
+            with open(os.path.join(d, "multi_experiment.json")) as f:
+                info = json.load(f)
+        except FileNotFoundError:
+            skipped.append((d, "no multi_experiment.json (not launched by this script)"))
+            continue
+        meta = checkpoint.read_meta(d)
+        if meta is None:
+            skipped.append((d, "no checkpoint"))
+            continue
+        argv = list(info["ablation_args"]) + cli_overrides + ["--resume", d]
+        try:
+            ns, unknown = validator.parse_known_args(argv)
+        except argparse.ArgumentError as e:
+            full_parser.error(f"{d}: {e}")
+        if unknown:
+            full_parser.error(f"{d}: unrecognised arguments {unknown}")
+        if meta["step"] >= ns.N:
+            skipped.append((d, f"complete ({meta['step']} steps)"))
+            continue
+        jobs.append({"name": info["experiment"], "label": f"{info['experiment']}/{ns.env}", "seed": info["seed"],
+                     "argv": argv, "hyp": vars(ns), "run_dir": d, "resume_step": meta["step"]})
+    for d, why in skipped:
+        print(f"[skip] {d}: {why}")
+    if not jobs:
+        full_parser.exit(0, "nothing to resume\n")
+    return jobs
+
+
 def pinning_supported():
     return hasattr(os, "sched_setaffinity")
 
@@ -306,7 +352,7 @@ def launch(job, slot):
         if slot and pinning_supported()
         else None
     )
-    log_f = open(os.path.join(job["run_dir"], "run.log"), "w")
+    log_f = open(os.path.join(job["run_dir"], "run.log"), "a" if "resume_step" in job else "w")
     proc = subprocess.Popen(
         cmd, stdout=log_f, stderr=subprocess.STDOUT, env=env, preexec_fn=pin
     )
@@ -324,7 +370,7 @@ def describe(jobs):
         diff = {
             k: v
             for k, v in hyp.items()
-            if k not in ("description", "env") and defaults.get(k) != v
+            if k not in ("description", "env", "resume") and defaults.get(k) != v
         }
         seeds = [j["seed"] for j in js]
         seed_str = (
@@ -332,8 +378,10 @@ def describe(jobs):
             if seeds == list(range(seeds[0], seeds[-1] + 1))
             else str(seeds)
         )
+        resume = [j["resume_step"] for j in js if "resume_step" in j]
         print(
             f"  {label}: seeds={seed_str} ({len(seeds)})  "
+            + (f"resume from steps {min(resume)}..{max(resume)}  " if resume else "")
             + "  ".join(f"{k}={v}" for k, v in diff.items())
         )
 
@@ -355,6 +403,8 @@ def main():
     # One folder per run: results/<experiment>-<env>-<seed>-<date>/. All runs in a launch share the same date stamp
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     for job in args.jobs:
+        if "resume_step" in job:  # continuing an existing folder: keep its files
+            continue
         job["run_dir"] = os.path.join(
             args.results_dir, f"{job['name']}-{job['hyp']['env']}-{job['seed']}-{stamp}"
         )
