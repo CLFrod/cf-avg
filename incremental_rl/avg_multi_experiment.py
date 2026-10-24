@@ -228,6 +228,7 @@ def describe(jobs):
 
 def main():
     tic = time.time()
+    sys.stdout.reconfigure(line_buffering=True)   # progress lines show up promptly when stdout is a file (sbatch, nohup)
     args = parse_args()
     if args.dry_run:
         print(f"{len(args.slots)} core blocks of {args.cores_per_run} available; "
