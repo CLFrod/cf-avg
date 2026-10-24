@@ -477,6 +477,7 @@ def main(args):
                     stopped_early = True
                     print(f"[time_limit] {args.time_limit} h reached at step {t + 1}; checkpoint saved. "
                           f"Continue with --resume {args.results_dir}")
+                    record(t + 1)  # a video whenever training ceases, including a time-limit stop
                     break
 
                 ep_tic = time.time()
@@ -527,7 +528,7 @@ def main(args):
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time() - tic))
     wandb.finish()
 
-    # Final video (not when stopped by the time limit: the resumed run records it at the end)
+    # Final video whenever training ceases (a time-limit stop already recorded its own above)
     if not stopped_early:
         record(t + 1)
 
