@@ -1,6 +1,6 @@
 import torch
 import argparse, traceback
-import time, wandb
+import json, time, wandb
 
 import numpy as np
 from collections import defaultdict
@@ -19,6 +19,7 @@ from incremental_rl.utils import (
     set_one_thread,
 )
 from incremental_rl.experiment_tracker import ExperimentTracker, record_video
+from incremental_rl.env_mods import make_env, Schedule, apply as apply_env_mods, describe as describe_env
 
 # Skip torch.distributions' per-call argument validation (shape/positive-definiteness checks on every step)
 torch.distributions.Distribution.set_default_validate_args(False)
@@ -301,27 +302,19 @@ def episode_row(episode, step, ep_len, ret, ep_duration, wall_time, stats, parti
 def main(args):
     tic = time.time()
 
-    expt = ExperimentTracker(args)
+    if args.vlines is None:  # mark the physics switches on the learning curve unless told otherwise
+        args.vlines = sorted(e["step"] for e in args.schedule)
+    expt = ExperimentTracker(args)  # writes args.json
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
-    # Env
-    env = gym.make(args.env, render_mode="rgb_array", width=640, height=480)
-    model = env.unwrapped.model
-    # print(f"Friction Default: {model.geom_friction}")
-    # print(f"Inertia Default: {model.body_inertia}")
-    # print(f"Mass Default Default: {model.body_mass}")
-    # print(f"Actuator Gear Default: {model.actuator_gear}")
-    # print(f"Actuator Gain Default: {model.actuator_gainprm}")
-    # print(f"Joint Damping Default: {model.dof_damping}")
-    # print(f"Gravity Default: {model.opt.gravity}")
-    #
-    # print(f"Friction Default: {len(model.geom_friction)}")
-    # print(f"Inertia Default: {len(model.body_inertia)}")
-    # print(f"Mass Default Default: {len(model.body_mass)}")
-    # print(f"Actuator Gear Default: {len(model.actuator_gear)}")
-    # print(f"Actuator Gain Default: {len(model.actuator_gainprm)}")
-    # print(f"Joint Damping Default: {len(model.dof_damping)}")
-    # print(f"Gravity Default: {len(model.opt.gravity)}")
+    # Env: reward/termination via constructor kwargs, physics via env_mods (now) and schedule (at given steps).
+    # See docs/env_modifications.md
+    env = make_env(args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480)
+    applied = apply_env_mods(env, args.env_mods)
+    schedule = Schedule(env, args.schedule)
+    print(f"[env_mods] step 0: applied {applied} -> {describe_env(env)}")
+    if schedule.entries:
+        print(f"[env_mods] schedule: {schedule.entries}")
 
     env = gym.wrappers.FlattenObservation(env)
     if args.normalize_obs:
@@ -363,16 +356,7 @@ def main(args):
     )  # convert each observation once; it is reused as next step's obs
     ep_tic = time.time()
     try:
-        for t in range(args.N):
-            if t == 3000000:
-                # moon gravity:
-                model.opt.gravity[-1] = -1.62
-            elif t == 6000000:
-                # mars gravity:
-                model.opt.gravity[-1] = -3.71
-            elif t == 9000000:
-                # k2-18b gravity (estimate)
-                model.opt.gravity[-1] = -11.95
+        for t in schedule.steps(args.N):  # == range(args.N); physics mods are applied between segments
             # N.B: Action is a torch.Tensor
             action, action_info = agent.compute_action(obs_t)
             sim_action = action.detach().cpu().view(-1).numpy()
@@ -542,10 +526,29 @@ def get_parser(add_help=True):
     )
     parser.add_argument(
         "--vlines",
-        default=[3000000, 6000000, 9000000],
+        default=None,
         type=int,
         nargs="*",
-        help="Steps marked with a vertical line on the learning curve (e.g. gravity switches)",
+        help="Steps marked with a vertical line on the learning curve (default: the schedule's switch steps)",
+    )
+    # Environment modifications (JSON strings; see docs/env_modifications.md)
+    parser.add_argument(
+        "--env_kwargs",
+        default={},
+        type=json.loads,
+        help='Reward/termination constructor kwargs, e.g. \'{"ctrl_cost_weight": 0.25, "max_episode_steps": 500}\'',
+    )
+    parser.add_argument(
+        "--env_mods",
+        default={},
+        type=json.loads,
+        help='Physics mods applied at step 0, e.g. \'{"gravity": -1.62, "mass_scale": 0.8}\'',
+    )
+    parser.add_argument(
+        "--schedule",
+        default=[],
+        type=json.loads,
+        help='Physics mods applied at given steps, e.g. \'[{"step": 3000000, "mods": {"gravity": -3.71}}]\'',
     )
     return parser
 

@@ -1,0 +1,22 @@
+{
+  "_comment": "Gravity schedule (Earth -> Moon at 3M -> Mars at 6M -> K2-18b at 9M) on three envs, one 192-core node. Paper hyperparameters per env. 60+60+60 = 180 runs.",
+  "defaults": {
+    "N": 12000000,
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true,
+    "n_runs": 60,
+    "schedule": [
+      {"step": 3000000, "mods": {"gravity": -1.62}},
+      {"step": 6000000, "mods": {"gravity": -3.71}},
+      {"step": 9000000, "mods": {"gravity": -11.95}}
+    ]
+  },
+  "experiments": [
+    {"name": "gravity", "env": "Hopper-v4",   "actor_lr": 1.1e-5, "critic_lr": 7.7e-5, "alpha_lr": 0.3},
+    {"name": "gravity", "env": "Ant-v4",      "actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
+    {"name": "gravity", "env": "Humanoid-v4", "actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07}
+  ]
+}
