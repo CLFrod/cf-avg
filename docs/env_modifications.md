@@ -5,8 +5,8 @@ so they are exactly what `incremental_rl/env_mods.py` sees. Each environment's s
 
 | kind | what it changes | how it is set | can change mid-run? |
 |---|---|---|---|
-| **Reward / termination** (Section 1) | the Gymnasium env's constructor arguments | `env_kwargs` → `gym.make(env, **env_kwargs)` | no (fixed for the run) |
-| **Physics / dynamics** (Section 2) | fields of the MuJoCo model (`env.unwrapped.model`) | `env_mods` (at step 0) and `schedule` (at a given step) | yes |
+| **Reward / termination** (Section 1) | the Gymnasium env's settings (constructor arguments) | `env_kwargs` at step 0; `env_kwargs` inside a `schedule` entry later | yes, set in place — except `use_contact_forces` and `exclude_current_positions_from_observation`, which change the observation size |
+| **Physics / dynamics** (Section 2) | fields of the MuJoCo model (`env.unwrapped.model`) | `env_mods` at step 0; `mods` inside a `schedule` entry later | yes |
 
 Config example (one experiment of a multi-experiment file):
 
@@ -15,8 +15,12 @@ Config example (one experiment of a multi-experiment file):
  "env_kwargs": {"ctrl_cost_weight": 0.25, "healthy_z_range": [0.2, 1.5], "max_episode_steps": 1000},
  "env_mods":   {"gravity": -1.62, "mass_scale": 0.8},
  "schedule":   [{"step": 3000000, "mods": {"gravity": -3.71}},
-                {"step": 6000000, "mods": {"gravity": -9.81, "gear_scale": 1.2}}]}
+                {"step": 6000000, "mods": {"gravity": -9.81, "gear_scale": 1.2}, "env_kwargs": {"healthy_z_range": [0.2, 1.0]}}]}
 ```
+
+A schedule entry needs `mods`, `env_kwargs`, or both. The Gymnasium MuJoCo envs read their reward/termination
+settings from attributes on every step, so a mid-run `env_kwargs` change takes effect immediately without
+rebuilding the env (the episode in progress continues under the new settings).
 
 `*_scale` keys are relative to the **original** model values, not the current ones, so `mass_scale: 0.8`
 followed later by `mass_scale: 1.0` restores the default. All applied values are printed to `run.log` once and
@@ -26,10 +30,11 @@ the full `env_kwargs` / `env_mods` / `schedule` are stored in the run's `args.js
 
 # Section 1 — Reward and termination (`env_kwargs`)
 
-These are constructor arguments of the Gymnasium environment and are fixed for the whole run. One extra knob is
-applied at `gym.make` level and is also accepted inside `env_kwargs`: **`max_episode_steps`** (default **1000**
-for all three environments) — the step count at which an episode is truncated. Range-valued arguments are given
-as 2-element lists in JSON.
+These are the Gymnasium environment's constructor arguments. Given as `env_kwargs` on the experiment they apply
+from step 0; given as `env_kwargs` in a `schedule` entry they are changed in place at that step (all except the
+two observation-size arguments). One extra knob is applied at `gym.make` level and is also accepted in
+`env_kwargs`: **`max_episode_steps`** (default **1000** for all three environments) — the step count at which an
+episode is truncated. Range-valued arguments are given as 2-element lists in JSON.
 
 ## 1.1 Ant-v4
 

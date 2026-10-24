@@ -1,12 +1,14 @@
 {
   "_comment": [
-    "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4: 12 conditions x 3 envs x 5 seeds = 180 runs, one 192-core node.",
+    "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4: 14 conditions x 3 envs x 5 seeds = 210 runs.",
+    "That is more than one 188-slot node: submit two jobs with SHARD=1/2 and SHARD=2/2 (105 runs each),",
+    "or drop conditions / seeds to fit one node.",
     "Each experiment without an `env` is run on every env in `envs` (with that env's paper hyperparameters);",
     "`per_env` gives env-specific overrides. Keys starting with _ are comments.",
     "Conditions 1-6 are the baselines: constant settings for 12M steps, so each reaches its peak.",
     "Conditions 7-12 are splits that switch at 6M between `base` and one of the baseline physics conditions,",
     "using exactly the same settings as those baselines, so the two halves can be compared against them.",
-    "(moon_adapted cannot be used in a split: its termination bounds are constructor arguments, fixed for a run.)",
+    "Conditions 13-14 also switch the termination bounds mid-run (schedule `env_kwargs`, set in place on the env).",
     "Videos: n_eval episodes every video_every steps, at each switch (just before it) and at the end.",
     "Friction note: MuJoCo uses the max of the two touching geoms' friction, so `friction_scale` (all geoms) is used",
     "rather than lowering the floor alone (Hopper's foot is 2.0 and would dominate)."
@@ -83,6 +85,26 @@
     {"name": "heavy_to_base",
      "_": "12. `heavy` physics for 6M steps, then base",
      "env_mods": {"mass_scale": 2.0},
-     "schedule": [{"step": 6000000, "mods": {"mass_scale": 1.0}}]}
+     "schedule": [{"step": 6000000, "mods": {"mass_scale": 1.0}}]},
+
+    {"name": "base_to_moon_adapted",
+     "_": "13. base for 6M steps, then the `moon_adapted` physics AND termination bounds (set in place)",
+     "per_env": {
+       "Hopper-v4":   {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_angle_range": [-0.5, 0.5]}}]},
+       "Ant-v4":      {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [0.2, 2.5]}}]},
+       "Humanoid-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [1.0, 3.5]}}]}
+     }},
+
+    {"name": "moon_adapted_to_base",
+     "_": "14. `moon_adapted` for 6M steps, then base physics and default termination bounds",
+     "env_mods": {"gravity": -1.62},
+     "per_env": {
+       "Hopper-v4":   {"env_kwargs": {"healthy_angle_range": [-0.5, 0.5]},
+                       "schedule": [{"step": 6000000, "mods": {"gravity": -9.81}, "env_kwargs": {"healthy_angle_range": [-0.2, 0.2]}}]},
+       "Ant-v4":      {"env_kwargs": {"healthy_z_range": [0.2, 2.5]},
+                       "schedule": [{"step": 6000000, "mods": {"gravity": -9.81}, "env_kwargs": {"healthy_z_range": [0.2, 1.0]}}]},
+       "Humanoid-v4": {"env_kwargs": {"healthy_z_range": [1.0, 3.5]},
+                       "schedule": [{"step": 6000000, "mods": {"gravity": -9.81}, "env_kwargs": {"healthy_z_range": [1.0, 2.0]}}]}
+     }}
   ]
 }

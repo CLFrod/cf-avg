@@ -6,9 +6,10 @@ Two kinds:
   env_kwargs  reward / termination: constructor arguments, fixed for the run   -> make_env(env_id, env_kwargs)
   mods        physics: fields of the MuJoCo model, settable at any time        -> apply(env, mods)
 
-A Schedule applies mods at given steps without any per-step check in the training loop:
+A Schedule applies mods (and/or reward-termination kwargs, set in place on the running env) at given steps
+without any per-step check in the training loop:
 
-    schedule = Schedule(env, [{"step": 3000000, "mods": {"gravity": -1.62}}])
+    schedule = Schedule(env, [{"step": 3000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [0.2, 2.5]}}])
     for t in schedule.steps(N):      # plain range() iteration inside each segment
         ...
 
@@ -141,6 +142,43 @@ def apply(env, mods):
     return applied
 
 
+FIXED_KWARGS = ("use_contact_forces", "exclude_current_positions_from_observation")   # change the observation space
+
+
+def _find_wrapper(env, cls):
+    w = env
+    while w is not None:
+        if isinstance(w, cls):
+            return w
+        w = getattr(w, "env", None)
+    return None
+
+
+def set_env_kwargs(env, kwargs):
+    """ Change reward/termination settings of a running env in place: the Gymnasium MuJoCo envs read them from
+    `_<name>` attributes on every step, so no env rebuild is needed. Returns {key: value applied} """
+    if not kwargs:
+        return {}
+    u = env.unwrapped
+    applied = {}
+    for k, v in kwargs.items():
+        if k in FIXED_KWARGS:
+            raise KeyError(f"{k!r} changes the observation space and cannot change mid-run")
+        if k == "max_episode_steps":
+            tl = _find_wrapper(env, gym.wrappers.TimeLimit)
+            if tl is None:
+                raise KeyError("no TimeLimit wrapper to set max_episode_steps on")
+            tl._max_episode_steps = int(v)
+        elif hasattr(u, f"_{k}"):
+            setattr(u, f"_{k}", tuple(v) if isinstance(v, list) else v)
+        else:
+            import inspect
+            known = [p for p in inspect.signature(type(u).__init__).parameters if p not in ("self", "kwargs")]
+            raise KeyError(f"unknown env kwarg {k!r} for {type(u).__name__}; known: {known + ['max_episode_steps']}")
+        applied[k] = v
+    return applied
+
+
 def describe(env):
     """ Current values of the physics quantities mods can change, for logging """
     m = env.unwrapped.model
@@ -153,17 +191,19 @@ def describe(env):
 
 
 class Schedule:
-    """ Physics mods applied at given steps. entries: [{"step": int, "mods": {...}}, ...] """
+    """ Physics mods and/or reward-termination kwargs applied at given steps.
+    entries: [{"step": int, "mods": {...}, "env_kwargs": {...}}, ...] (each entry needs at least one of the two) """
 
-    def __init__(self, env, entries, log=print, initial_mods=None):
+    def __init__(self, env, entries, log=print, initial_mods=None, initial_kwargs=None):
         self.env, self.log = env, log
-        self.current_mods = dict(initial_mods or {})   # every mod in effect so far (step-0 mods + applied entries)
+        self.current_mods = dict(initial_mods or {})       # every mod in effect so far (step-0 mods + applied entries)
+        self.current_kwargs = dict(initial_kwargs or {})   # likewise for reward/termination kwargs
         entries = sorted(entries or [], key=lambda e: e["step"])
         for e in entries:
             if e["step"] <= 0:
-                raise ValueError(f"schedule step must be > 0 (got {e['step']}); use env_mods for step 0")
-            if "mods" not in e:
-                raise ValueError(f"schedule entry at step {e['step']} has no `mods`")
+                raise ValueError(f"schedule step must be > 0 (got {e['step']}); use env_mods / env_kwargs for step 0")
+            if not (e.get("mods") or e.get("env_kwargs")):
+                raise ValueError(f"schedule entry at step {e['step']} has neither `mods` nor `env_kwargs`")
         if len({e["step"] for e in entries}) != len(entries):
             raise ValueError("schedule has duplicate steps")
         self.entries = entries
@@ -177,20 +217,26 @@ class Schedule:
         between events is a plain range(). `callback(step)` is called when a step in `at` is reached (and before
         the mods of a switch at that step are applied). Entries at or before `start` are re-applied up front
         without callbacks (resume) """
-        mods_at = {e["step"]: e["mods"] for e in self.entries}
+        entry_at = {e["step"]: e for e in self.entries}
         at = set(at)
         prev = 0
-        for s in sorted(mods_at.keys() | at):
+        for s in sorted(entry_at.keys() | at):
             if s >= n:
                 break
             if s > start:
                 yield from range(max(prev, start), s)
                 if callback and s in at:
                     callback(s)
-            if s in mods_at:
-                applied = apply(self.env, mods_at[s])
-                self.current_mods.update(mods_at[s])
-                self.log(f"[env_mods] step {s}: applied {applied} -> {describe(self.env)}")
+            if s in entry_at:
+                e = entry_at[s]
+                if e.get("mods"):
+                    applied = apply(self.env, e["mods"])
+                    self.current_mods.update(e["mods"])
+                    self.log(f"[env_mods] step {s}: applied {applied} -> {describe(self.env)}")
+                if e.get("env_kwargs"):
+                    applied = set_env_kwargs(self.env, e["env_kwargs"])
+                    self.current_kwargs.update(e["env_kwargs"])
+                    self.log(f"[env_kwargs] step {s}: set {applied}")
             prev = s
         yield from range(max(prev, start), n)
 
@@ -201,6 +247,7 @@ def validate(env_id, env_kwargs=None, env_mods=None, schedule=None):
     try:
         apply(env, env_mods)
         for e in Schedule(env, schedule).entries:
-            apply(env, e["mods"])
+            apply(env, e.get("mods"))
+            set_env_kwargs(env, e.get("env_kwargs"))
     finally:
         env.close()

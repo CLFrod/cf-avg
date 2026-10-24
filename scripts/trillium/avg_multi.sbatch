@@ -13,6 +13,7 @@
 # Runs stop cleanly at TIME_LIMIT hours with a checkpoint. To continue them in a new job:
 #   sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/gravity-*-20261024_*" avg_multi.sbatch
 # (add --dependency=afterany:<jobid> to queue the continuation behind the first job automatically)
+# More runs than one node holds: submit one job per slice, e.g. SHARD=1/2 and SHARD=2/2 (same CONFIG).
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
@@ -36,9 +37,11 @@ RUN_ARGS=${RUN_ARGS-}
 if [ -z "$CONFIG$RESUME_FROM" ] && [ -z "$RUN_ARGS" ]; then
     RUN_ARGS="--env Hopper-v4 --N 12000000 --normalize_obs --pnorm --scaled_td"
 fi
+SHARD=${SHARD:-}                               # K/N: run only one of N interleaved slices (one job per node)
 MODE_ARGS=()
 [ -n "$CONFIG" ] && MODE_ARGS=(--config "$CONFIG")
 [ -n "$RESUME_FROM" ] && MODE_ARGS=(--resume_from "$RESUME_FROM")
+[ -n "$SHARD" ] && MODE_ARGS+=(--shard "$SHARD")
 
 cd "$REPO"
 source .venv/bin/activate

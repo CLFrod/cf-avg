@@ -19,7 +19,7 @@ from incremental_rl.utils import (
     set_one_thread,
 )
 from incremental_rl.experiment_tracker import ExperimentTracker, record_video
-from incremental_rl.env_mods import make_env, Schedule, apply as apply_env_mods, describe as describe_env
+from incremental_rl.env_mods import make_env, Schedule, set_env_kwargs, apply as apply_env_mods, describe as describe_env
 from incremental_rl import checkpoint as ckpt
 
 # Skip torch.distributions' per-call argument validation (shape/positive-definiteness checks on every step)
@@ -308,6 +308,7 @@ def make_video_recorder(args, train_env, agent, schedule, expt):
                 state["env"] = e
             e = state["env"]
             apply_env_mods(e, schedule.current_mods)
+            set_env_kwargs(e, schedule.current_kwargs)
             train_norm = ckpt.find_wrapper(train_env, NormalizeObservation)
             if train_norm is not None:
                 eval_norm = ckpt.find_wrapper(e, NormalizeObservation)
@@ -360,7 +361,7 @@ def main(args):
     # See docs/env_modifications.md
     env = make_env(args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480)
     applied = apply_env_mods(env, args.env_mods)
-    schedule = Schedule(env, args.schedule, initial_mods=args.env_mods)
+    schedule = Schedule(env, args.schedule, initial_mods=args.env_mods, initial_kwargs=args.env_kwargs)
     print(f"[env_mods] step 0: applied {applied} -> {describe_env(env)}")
     if schedule.entries:
         print(f"[env_mods] schedule: {schedule.entries}")

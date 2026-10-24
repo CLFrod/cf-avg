@@ -97,6 +97,10 @@ def add_launcher_args(parser):
         help="Continue the runs in these folders from their checkpoints (e.g. 'results/gravity-*-20261024_*')",
     )
     group.add_argument(
+        "--shard", default=None, type=str, metavar="K/N",
+        help="Run only the K-th of N interleaved slices of the job list (e.g. 1/2 and 2/2 on two nodes)",
+    )
+    group.add_argument(
         "--dry_run", action="store_true", help="Print the resolved experiments and exit"
     )
     return parser
@@ -137,6 +141,15 @@ def parse_args():
                 "WARNING: --env on the command line overrides the env of every experiment in the config"
             )
         args.jobs = build_jobs(experiments, args, cli_overrides, full_parser)
+    if args.shard:
+        try:
+            k, n = (int(x) for x in args.shard.split("/"))
+            assert 1 <= k <= n
+        except (ValueError, AssertionError):
+            full_parser.error(f"--shard must be K/N with 1 <= K <= N (got {args.shard!r})")
+        total = len(args.jobs)
+        args.jobs = args.jobs[k - 1::n]   # jobs are interleaved over experiments, so every shard gets a mix
+        print(f"shard {k}/{n}: {len(args.jobs)} of {total} runs")
     n_threads = max(j["hyp"]["n_threads"] for j in args.jobs)
     if n_threads > args.cores_per_run:
         print(
