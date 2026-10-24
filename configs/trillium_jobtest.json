@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "Rehearsal of the real job script on the debug partition: 3 runs (one per env), 60k steps each (~3 min),",
+    "same hyperparameters/physics mechanics as trillium_dynamics_3env.json, videos at 30k (switch) and the end.",
+    "Job 1 (stop early, exercise checkpoints):",
+    "  sbatch -p debug --time=00:15:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_jobtest.json,TIME_LIMIT=0.025 \\",
+    "      $HOME/cf-avg/scripts/trillium/avg_multi.sbatch",
+    "Job 2 (resume to completion, after job 1 has finished):",
+    "  sbatch -p debug --time=00:15:00 --export=ALL,RESUME_FROM=\"$SCRATCH/results/jobtest-*\" \\",
+    "      $HOME/cf-avg/scripts/trillium/avg_multi.sbatch"
+  ],
+  "defaults": {
+    "N": 60000,
+    "n_runs": 1,
+    "checkpoint": 20000,
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true,
+    "n_eval": 1,
+    "video_every": 30000
+  },
+  "envs": {
+    "Hopper-v4":   {"actor_lr": 1.1e-5, "critic_lr": 7.7e-5, "alpha_lr": 0.3,
+                    "schedule": [{"step": 30000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_angle_range": [-0.5, 0.5]}}]},
+    "Ant-v4":      {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07,
+                    "schedule": [{"step": 30000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [0.2, 2.5]}}]},
+    "Humanoid-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07,
+                    "schedule": [{"step": 30000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [1.0, 3.5]}}]}
+  },
+  "experiments": [{"name": "jobtest"}]
+}
