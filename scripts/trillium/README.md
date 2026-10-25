@@ -1,126 +1,100 @@
 # Running on Trillium (SciNet)
 
-Trillium CPU jobs always get a **whole node** (192 cores, ~755 GiB), max walltime **24 h**.
-`$HOME` is **read-only** on compute nodes and there's **no internet**, so: code + venv live in
-`$HOME`, results go to `$SCRATCH`, and jobs are submitted from `$SCRATCH`.
+Trillium CPU jobs always get a **whole node** (192 cores, ~755 GiB), max walltime **24 h**. `$HOME` is
+**read-only** on compute nodes and there is **no internet**, so code + venv live in `$HOME/cf-avg`, and every
+run writes to `$SCRATCH`. AVG does one tiny update per step, so a run cannot use more than one core: the job
+runs **188 runs at once, one pinned core each** (4 cores reserved for the launcher/OS).
 
-AVG does one tiny update per env step, so a run can't use more than ~1 core. The default layout is
-**188 runs × 1 pinned core** (4 cores left for the launcher/OS). Measure before changing this (see below).
+| file | purpose |
+|---|---|
+| `setup_env.sh` | one-time environment build on a login node |
+| `smoke_test.sh` | ~1 min login-node check of the whole pipeline (rendering, config, runs, resume) |
+| `submit.sh` | submit the job (from anywhere; puts the job directory on scratch) |
+| `avg_multi.sh` | the Slurm job script: loads modules, checks rendering, launches the experiment |
 
-## One-time setup (login node)
+## 1. Setup (login node, once)
 
 ```bash
 cd $HOME && git clone -b optimize_logging https://github.com/CLFrod/cf-avg.git && cd cf-avg
 bash scripts/trillium/setup_env.sh
 ```
 
-The script installs `uv` if needed, loads `StdEnv/2023 python/3.13`, and runs `uv sync --python "$(which python)"`,
-i.e. the exact versions from `uv.lock` installed into a venv on the module's interpreter. Rerun it whenever
-`uv.lock` changes.
+Installs `uv` if needed, loads `StdEnv/2023 python/3.13`, and installs the exact versions from `uv.lock` into a
+venv on the module's interpreter. The module's Python is required (rather than uv's own standalone build) because
+off-screen video rendering loads `libOSMesa` from the Gentoo layer, which only works inside a Python built in that
+layer. Rerun after `git pull` whenever `uv.lock` changed.
 
-Why the module's Python rather than uv's own: off-screen video rendering loads `libOSMesa` from the Gentoo
-layer (`$EBROOTGENTOO/lib64`), and a library from that layer can only be loaded into a Python built in the same
-layer (uv's standalone Python uses the system libc and segfaults). uv still pins every package to `uv.lock`.
-Both scripts load `StdEnv/2023 python/3.13` before activating `.venv`, since the venv's interpreter is the
-module's. The pure-pip equivalent, if ever needed: `pip install -r requirements.txt && pip install -e .` in a
-`python -m venv` made from the same module.
-
-## 1a. Smoke test (login node, ~1 min, 3 cores)
+## 2. Smoke test (login node, ~1 min, 3 cores)
 
 ```bash
-cd $HOME/cf-avg && bash scripts/trillium/smoke_test.sh
+bash scripts/trillium/smoke_test.sh
 ```
 
-Checks OSMesa rendering, resolves the real config, runs one tiny run per env (Hopper / Ant / Humanoid) through a
-physics + termination switch with videos and checkpoints into `$SCRATCH/results/smoke_<time>/`, then resumes
-one of them. Ends with `ALL OK` and the per-run steps/s. Stays inside the login-node limits.
+Checks the interpreter, OSMesa rendering, that the real config resolves (every env/mod validated), runs one tiny
+run per env (Hopper / Ant / Humanoid) through a physics + termination switch with videos and checkpoints into
+`$SCRATCH/results/smoke_<time>/`, then resumes one of them. Ends with `ALL OK` and per-run steps/s.
 
-## 1b. Benchmark (interactive, ~15 min of a 60 min debugjob)
+## 3. Submit
 
 ```bash
-debugjob
-cd $SCRATCH && bash $HOME/cf-avg/scripts/trillium/bench.sh
+bash scripts/trillium/submit.sh        # runs configs/trillium_dynamics_3env.json
 ```
 
-This prints steps/sec for 1/2/4/8 threads on a single run, plus per-run speed with the node full.
-Use the full-node number to check `--N` fits in 24 h: `hours ≈ N / steps_per_sec / 3600`.
-
-## 2. Submit
+`submit.sh` is `sbatch --chdir=$SCRATCH/avg_jobs avg_multi.sh`, so Slurm's log lands in
+`$SCRATCH/avg_jobs/avg_multi_<jobid>.out` wherever you run it from. Right after, queue the continuation job
+behind it (it exits in seconds if nothing needs resuming):
 
 ```bash
-bash $HOME/cf-avg/scripts/trillium/submit.sh           # runs configs/trillium_dynamics_3env.json
+bash scripts/trillium/submit.sh --dependency=afterany:<jobid> --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*"
 ```
 
-`submit.sh` creates `$SCRATCH/avg_jobs` and submits `avg_multi.sh` with that as the job's working directory
-(Slurm's log must land in scratch; home is read-only on compute nodes). Extra arguments go to `sbatch`.
+Other experiments: `--export=ALL,CONFIG=<file>`; the options are listed in the header of `avg_multi.sh`
+(`SHARD=1/2`, `2/2` for a config larger than one node, `TIME_LIMIT`, `RESULTS_DIR`, …).
 
-Other experiments or a single hand-written run are selected with environment variables
-(`sbatch --export=ALL,CONFIG=... avg_multi.sh`); see the header of the script.
-
-Results: `$SCRATCH/results/<NAME>-<seed>-<date>/`. Launcher output: `$SCRATCH/avg_jobs/avg_multi_<jobid>.out`.
-
-More seeds than one node holds: submit again with `START_SEED=188`, etc. (each job is a separate node).
-
-Several environments, each with its own hyperparameters, in one job: describe them in a config
-(`configs/avg_envs.yaml` has the paper's per-env values) and pass it as `CONFIG`:
+## 4. Monitor
 
 ```bash
-bash $HOME/cf-avg/scripts/trillium/submit.sh --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml
+squeue -u $USER                                        # PD waiting, R running
+head -70 $SCRATCH/avg_jobs/avg_multi_<jobid>.out       # python path, "OSMesa render OK", the plan, [start] lines
+jobperf <jobid>                                        # ~186 busy cores
+grep -h '"step"' $SCRATCH/results/*/checkpoint.json | sort | uniq -c   # progress of every run
 ```
 
-Runs land in `$SCRATCH/results/<experiment name>-<env>-<seed>-<date>/`. Keep the total seed count across
-experiments at or below 188 per job, or the extras queue until a core frees up (and must still finish
-inside the 24 h walltime).
+Each run folder `$SCRATCH/results/<name>-<env>-<seed>-<date>/` holds `metrics.csv` (one row per episode,
+flushed as written), `run.log`, `checkpoint.pt/json`, the learning-curve PNG, and `<run_id>_video_<step>.mp4`.
+`step / wall_time` in `checkpoint.json` is the run's real throughput.
 
-## Resuming after the 24 h walltime
+## 5. Resume
 
-Every run writes `checkpoint.pt` + `checkpoint.json` in its folder every `--checkpoint` steps (50k, i.e. every
-few minutes) and stops cleanly at `TIME_LIMIT` hours (default 23.5) with a final checkpoint. The checkpoint
-holds the networks, both Adam states, the TD-error scaler, the observation normaliser and all RNG states, so a
-resumed run is bit-identical to one that was never interrupted (physics schedule included). To continue every
-run of a job in a new job:
+Runs stop cleanly at `TIME_LIMIT` hours (default 23.5) with a checkpoint (networks, optimizers, TD-error scaler,
+observation normaliser, RNG states), and a resumed run is bit-identical to an uninterrupted one. The continuation
+job above skips complete runs and continues the rest, appending to the same `metrics.csv`. Arguments given to the
+resume job override the stored ones, so a finished run can also be extended (`RUN_ARGS="--N 20000000"`).
+
+## 6. Plot
 
 ```bash
-bash $HOME/cf-avg/scripts/trillium/submit.sh --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*"
-# or queue it behind the first job right away:
-bash $HOME/cf-avg/scripts/trillium/submit.sh --dependency=afterany:<first jobid> --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*"
+# mean +- std over seeds, one panel per metric; `label=glob` groups overlay
+python -m incremental_rl.plot_runs "base=$SCRATCH/results/base-Ant-v4-*" "moon=$SCRATCH/results/moon-Ant-v4-*" \
+    --vlines 6000000 --out ant_moon.png
 ```
 
-Finished runs are skipped (`checkpoint.json` has `"complete": true`), the rest continue from their last
-checkpoint, appending to the same `metrics.csv`. Arguments given to the resume job (e.g. `RUN_ARGS="--N 20000000"`)
-override the stored ones, so a finished run can also be extended. Check progress of a batch with
-`grep -h '"step"' $SCRATCH/results/gravity-*/checkpoint.json`.
+Works on partial data while a job runs. The `steps_per_sec` panel shows whether per-step speed holds over a run.
 
-## 3. Plot
+## Storage
 
-Every run writes `<run_id>_metrics.csv`: one row per episode (`step`, `return`, `ep_len`, `wall_time`, episode
-means of the losses / TD error / entropy / |action|, sampled grad norms, weight norms). Rows are flushed as
-they are written, so a run killed at the walltime limit keeps everything up to that point.
+| | `$HOME` | `$SCRATCH` | `$PROJECT` |
+|---|---|---|---|
+| use | code + venv | all job output | finished results worth keeping |
+| on compute nodes | read-only | read/write | read-only |
+| backed up | yes | **no** (purgeable) | yes, shared with the group |
 
-```bash
-# mean +- std over all seeds of one experiment, one panel per metric
-python -m incremental_rl.plot_runs "$SCRATCH/results/moon_earth-*" --vlines 3000000 6000000 9000000 --out moon_earth.png
-# overlay two experiments, chosen metrics only
-python -m incremental_rl.plot_runs "moon=$SCRATCH/results/moon_earth-*" "base=$SCRATCH/results/baseline-*" \
-    --metrics return critic_loss entropy --out compare.png
-```
-
-`wall_time` vs `step` in the CSV gives the real steps/sec of a full node: use it to set `--N` for the next job.
-
-## Monitoring
-
-```bash
-squeue -u $USER
-jobperf <JOBID>        # CPU usage should be ~188 cores busy
-```
+Copy finished run folders (minus `checkpoint.pt` if you like) to `$PROJECT` when a batch is done.
 
 ## Notes
 
-- Videos (`n_eval` episodes every `video_every` steps, at each physics switch and whenever training ceases, as
-  `<run_id>_video_<step>.mp4` in the run folder) render off-screen on the CPU through OSMesa: the job script
-  loads `StdEnv/2023` (which provides `libOSMesa`), sets `MUJOCO_GL=osmesa`, and prints `OSMesa render OK` /
-  `FAILED` at the top of the Slurm log. On failure it falls back to `MUJOCO_GL=disable`: training is unaffected,
-  the runs just log `[video] recording failed ...` and produce no videos.
-  Cost: software rendering is ~20–60 s per 2-episode video, a few minutes per 12M-step run.
+- Videos: `n_eval` episodes every `video_every` steps, before each physics switch, and whenever training ceases.
+  They render off-screen on the CPU via OSMesa (`MUJOCO_GL=osmesa`); the job log's first lines say
+  `OSMesa render OK` or fall back to `MUJOCO_GL=disable` (training unaffected, no videos). ~20–60 s per video.
 - wandb: leave `--wandb_mode disabled`, or use `offline` and `wandb sync` from a login node.
-- `pyproject.toml` pulls CUDA builds of torch on Linux. They work on CPU nodes, just a larger download.
+- `requirements.txt` (pinned from `uv.lock`) is the pure-pip equivalent of `setup_env.sh` if ever needed.
