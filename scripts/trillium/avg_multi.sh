@@ -6,7 +6,7 @@
 #   bash $HOME/cf-avg/scripts/trillium/submit.sh      (= sbatch --chdir=$SCRATCH/avg_jobs avg_multi.sh)
 #
 # Everything else is optional, set through environment variables (Slurm's --export=ALL,VAR=value):
-#   a different experiment file:      sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml avg_multi.sh
+#   a different experiment file:      bash submit.sh --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_jobtest.json
 #   continue runs stopped at the time limit (TIME_LIMIT hours, default 23.5) in a new job:
 #                                      sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*" avg_multi.sh
 #     (add --dependency=afterany:<jobid> to queue it behind the first job automatically)

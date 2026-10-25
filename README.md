@@ -47,6 +47,18 @@ Your terminal prompt should begin with `(cf-avg) or (.venv)`.
 python avg.py --env "Humanoid-v4" --N 10001000
 ```
 
+## Experiments: many runs, modified environments, Trillium
+
+- `incremental_rl/avg_ablation.py` — one AVG run. Logs every episode to `metrics.csv`, checkpoints for `--resume`,
+  records videos, and takes environment modifications (`--env_kwargs`, `--env_mods`, `--schedule`).
+- `incremental_rl/avg_multi_experiment.py` — many runs in parallel (one pinned core each) from a JSON config of
+  experiments × environments × seeds: `configs/trillium_dynamics_3env.json` is the main experiment,
+  `configs/trillium_jobtest.json` a small template. `--dry_run` prints the plan.
+- `incremental_rl/plot_runs.py` — mean ± std over seeds of any logged metric vs steps.
+- `docs/env_modifications.md` — every physics (gravity, mass, friction, damping, gear, …) and reward/termination
+  setting that can be changed, per environment, including mid-run.
+- `scripts/trillium/README.md` — running it all on the Trillium cluster.
+
 ## Learned Behavior in Simulation
 <!-- ![AVG](assets/AVG.gif){width=200px height=200px} -->
 

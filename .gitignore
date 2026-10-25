@@ -164,6 +164,7 @@ cython_debug/
 # Slurm files
 *.out
 *.sh
+!scripts/trillium/*.sh
 
 # Results
 *results*
