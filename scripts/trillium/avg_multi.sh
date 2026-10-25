@@ -3,7 +3,7 @@
 #
 # Submit from a directory in $SCRATCH (home is read-only on compute nodes, so Slurm's output file must
 # land in scratch). With no arguments it runs configs/trillium_dynamics_3env.json:
-#   cd $SCRATCH/avg_jobs && sbatch $HOME/cf-avg/scripts/trillium/avg_multi.sh
+#   bash $HOME/cf-avg/scripts/trillium/submit.sh      (= sbatch --chdir=$SCRATCH/avg_jobs avg_multi.sh)
 #
 # Everything else is optional, set through environment variables (Slurm's --export=ALL,VAR=value):
 #   a different experiment file:      sbatch --export=ALL,CONFIG=$HOME/cf-avg/configs/avg_envs.yaml avg_multi.sh
