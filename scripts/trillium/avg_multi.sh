@@ -2,7 +2,7 @@
 # Run many seeds of avg_ablation on one full Trillium CPU node (192 cores), one pinned core per run.
 #
 # Submit from a directory in $SCRATCH (home is read-only on compute nodes, so Slurm's output file must
-# land in scratch). With no arguments it runs configs/trillium_dynamics_3env.json:
+# land in scratch). With no arguments it runs configs/trillium_dynamics_3env_24m.json:
 #   bash $HOME/cf-avg/scripts/trillium/submit.sh      (= sbatch --chdir=$SCRATCH/avg_jobs avg_multi.sh)
 #
 # Everything else is optional, set through environment variables (Slurm's --export=ALL,VAR=value):
@@ -28,7 +28,7 @@ NAME=${NAME:-avg_multi}
 N_RUNS=${N_RUNS:-188}
 START_SEED=${START_SEED:-0}
 RESERVE_CORES=${RESERVE_CORES:-4}              # launcher + OS + file I/O
-CONFIG=${CONFIG-$REPO/configs/trillium_dynamics_3env.json}   # the experiment; CONFIG= (empty) -> single run from RUN_ARGS
+CONFIG=${CONFIG-$REPO/configs/trillium_dynamics_3env_24m.json}   # the experiment; CONFIG= (empty) -> single run from RUN_ARGS
 RESUME_FROM=${RESUME_FROM:-}                   # glob of run folders to continue from their checkpoints
 TIME_LIMIT=${TIME_LIMIT:-23.5}                 # hours: runs checkpoint and exit cleanly before the 24 h walltime
 RUN_ARGS=${RUN_ARGS-}

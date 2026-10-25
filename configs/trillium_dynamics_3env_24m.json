@@ -1,0 +1,118 @@
+{
+  "_comment": [
+    "Dynamics / reward shifts on Hopper-v4, Ant-v4, Humanoid-v4 on one 192-core node, 24M steps per run",
+    "(the 12M run took 7-8.5 h per run; 24M is ~15-17 h, inside the 24 h walltime).",
+    "5 baselines x 3 envs x 5 seeds = 75, 4 moon variants x 3 envs x 5 seeds = 60, 5 splits x 3 envs x 3 seeds = 45,",
+    "1 there-and-back x 3 envs x 2 seeds = 6 -> 186 runs (188 slots with 4 cores reserved).",
+    "Seeds: one fixed random set in `defaults`; experiments with fewer runs take the first 3 (or 2) of it.",
+    "Each experiment without an `env` is run on every env in `envs` (with that env's paper hyperparameters);",
+    "`per_env` gives env-specific overrides. Keys starting with _ are comments.",
+    "Conditions 1-5 are the baselines: constant settings for 24M steps.",
+    "Conditions 6-9 are Moon gravity with different reward/termination settings. In the 12M run, plain `moon` learned to",
+    "walk (Ant peak 1926) but `moon_adapted` (healthy_z_range raised to 2.5) collapsed to standing still on every seed",
+    "(761 +- 3: the healthy reward minus control cost, no forward progress), so the survival bonus, not the termination",
+    "bound, is the suspected trap. These four separate the two: bounds in {default, mid, wide} x healthy_reward in",
+    "{default, 0.2x, 0}.",
+    "Conditions 10-14 are splits that switch at 12M between `base` and one of the baseline physics conditions,",
+    "using exactly the same settings as those baselines. Condition 15 goes base -> moon -> base at 8M / 16M.",
+    "Videos: n_eval episodes every video_every steps, at each switch (just before it) and at the end.",
+    "Friction note: MuJoCo uses the max of the two touching geoms' friction, so `friction_scale` (all geoms) is used",
+    "rather than lowering the floor alone (Hopper's foot is 2.0 and would dominate)."
+  ],
+
+  "defaults": {
+    "N": 24000000,
+    "seeds": [18606, 16858, 63790, 15097, 62693],
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true,
+    "n_eval": 2,
+    "video_every": 3000000
+  },
+
+  "envs": {
+    "Hopper-v4":   {"actor_lr": 1.1e-5, "critic_lr": 7.7e-5, "alpha_lr": 0.3},
+    "Ant-v4":      {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
+    "Humanoid-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07}
+  },
+
+  "experiments": [
+    {"name": "base",
+     "_": "1. default physics, default reward/termination"},
+
+    {"name": "moon",
+     "_": "2. Moon gravity (1.62 m/s^2) from step 0, default reward/termination",
+     "env_mods": {"gravity": -1.62}},
+
+    {"name": "gear2x",
+     "_": "3. every actuator twice as strong (torque = gear x ctrl)",
+     "env_mods": {"gear_scale": 2.0}},
+
+    {"name": "slippery",
+     "_": "4. all contact friction scaled to 0.3x (floor and bodies)",
+     "env_mods": {"friction_scale": 0.3}},
+
+    {"name": "heavy",
+     "_": "5. every body twice as heavy (inertia scaled with it)",
+     "env_mods": {"mass_scale": 2.0}},
+
+    {"name": "moon_mid",
+     "_": "6. Moon gravity, termination bounds relaxed half as far as moon_adapted was, default healthy reward",
+     "env_mods": {"gravity": -1.62},
+     "per_env": {
+       "Hopper-v4":   {"env_kwargs": {"healthy_angle_range": [-0.35, 0.35]}},
+       "Ant-v4":      {"env_kwargs": {"healthy_z_range": [0.2, 1.5]}},
+       "Humanoid-v4": {"env_kwargs": {"healthy_z_range": [1.0, 2.75]}}
+     }},
+
+    {"name": "moon_wide_lowhealthy",
+     "_": "7. Moon gravity, moon_adapted's wide bounds, healthy reward cut to 0.2x (Hopper 1 -> 0.2, Ant 1 -> 0.2, Humanoid 5 -> 1)",
+     "env_mods": {"gravity": -1.62},
+     "per_env": {
+       "Hopper-v4":   {"env_kwargs": {"healthy_angle_range": [-0.5, 0.5], "healthy_reward": 0.2}},
+       "Ant-v4":      {"env_kwargs": {"healthy_z_range": [0.2, 2.5], "healthy_reward": 0.2}},
+       "Humanoid-v4": {"env_kwargs": {"healthy_z_range": [1.0, 3.5], "healthy_reward": 1.0}}
+     }},
+
+    {"name": "moon_wide_nohealthy",
+     "_": "8. Moon gravity, moon_adapted's wide bounds, no healthy reward: standing still now scores below zero, only forward progress pays",
+     "env_mods": {"gravity": -1.62},
+     "per_env": {
+       "Hopper-v4":   {"env_kwargs": {"healthy_angle_range": [-0.5, 0.5], "healthy_reward": 0.0}},
+       "Ant-v4":      {"env_kwargs": {"healthy_z_range": [0.2, 2.5], "healthy_reward": 0.0}},
+       "Humanoid-v4": {"env_kwargs": {"healthy_z_range": [1.0, 3.5], "healthy_reward": 0.0}}
+     }},
+
+    {"name": "moon_nohealthy",
+     "_": "9. Moon gravity, DEFAULT termination bounds, no healthy reward: isolates the reward change from the bound change (compare with `moon`)",
+     "env_mods": {"gravity": -1.62},
+     "env_kwargs": {"healthy_reward": 0.0}},
+
+    {"name": "base_to_moon", "seeds": [18606, 16858, 63790],
+     "_": "10. base for 12M steps, then the `moon` physics",
+     "schedule": [{"step": 12000000, "mods": {"gravity": -1.62}}]},
+
+    {"name": "moon_to_base", "seeds": [18606, 16858, 63790],
+     "_": "11. `moon` physics for 12M steps, then base",
+     "env_mods": {"gravity": -1.62},
+     "schedule": [{"step": 12000000, "mods": {"gravity": -9.81}}]},
+
+    {"name": "base_to_gear2x", "seeds": [18606, 16858, 63790],
+     "_": "12. base for 12M steps, then the `gear2x` physics",
+     "schedule": [{"step": 12000000, "mods": {"gear_scale": 2.0}}]},
+
+    {"name": "base_to_slippery", "seeds": [18606, 16858, 63790],
+     "_": "13. base for 12M steps, then the `slippery` physics",
+     "schedule": [{"step": 12000000, "mods": {"friction_scale": 0.3}}]},
+
+    {"name": "base_to_heavy", "seeds": [18606, 16858, 63790],
+     "_": "14. base for 12M steps, then the `heavy` physics",
+     "schedule": [{"step": 12000000, "mods": {"mass_scale": 2.0}}]},
+
+    {"name": "base_moon_base", "seeds": [18606, 16858],
+     "_": "15. there and back: base for 8M, Moon gravity for 8M, base again for 8M (recovery after a shift)",
+     "schedule": [{"step": 8000000, "mods": {"gravity": -1.62}}, {"step": 16000000, "mods": {"gravity": -9.81}}]}
+  ]
+}

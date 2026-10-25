@@ -37,7 +37,7 @@ run per env (Hopper / Ant / Humanoid) through a physics + termination switch wit
 ## 3. Submit
 
 ```bash
-bash scripts/trillium/submit.sh        # runs configs/trillium_dynamics_3env.json
+bash scripts/trillium/submit.sh        # runs configs/trillium_dynamics_3env_24m.json
 ```
 
 `submit.sh` is `sbatch --chdir=$SCRATCH/avg_jobs avg_multi.sh`, so Slurm's log lands in
