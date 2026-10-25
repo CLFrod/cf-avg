@@ -16,6 +16,7 @@
     "Conditions 10-14 are splits that switch at 12M between `base` and one of the baseline physics conditions,",
     "using exactly the same settings as those baselines. Condition 15 goes base -> moon -> base at 8M / 16M.",
     "Videos: n_eval episodes every video_every steps, at each switch (just before it) and at the end.",
+    "Model snapshots (<run_id>_model_<step>.pt: actor, critic, optimizers, obs normaliser) every 1M steps and at the end.",
     "Friction note: MuJoCo uses the max of the two touching geoms' friction, so `friction_scale` (all geoms) is used",
     "rather than lowering the floor alone (Hopper's foot is 2.0 and would dominate)."
   ],
@@ -29,7 +30,9 @@
     "pnorm": true,
     "scaled_td": true,
     "n_eval": 2,
-    "video_every": 3000000
+    "video_every": 3000000,
+    "save_model": true,
+    "save_model_every": 1000000
   },
 
   "envs": {

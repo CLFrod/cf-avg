@@ -42,8 +42,15 @@ def read_meta(run_dir):
         return None
 
 
-def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_id, N, complete=False):
+def obs_rms_state(env):
+    """ The NormalizeObservation running mean/var/count, or None if the env is not normalized """
     norm = find_wrapper(env, NormalizeObservation)
+    if norm is None:
+        return None
+    return {"mean": norm.obs_rms.mean.copy(), "var": norm.obs_rms.var.copy(), "count": norm.obs_rms.count}
+
+
+def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_id, N, complete=False):
     scaler = agent.td_error_scaler
     state = {
         "step": step, "episode": episode, "run_id": run_id, "N": N, "wall_time": wall_time,
@@ -54,8 +61,7 @@ def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_i
             "td_scaler": {k: {"n": getattr(scaler, k).n, "m": getattr(scaler, k).m, "s": getattr(scaler, k).s}
                           for k in SCALER_STATS},
         },
-        "obs_rms": None if norm is None else {
-            "mean": norm.obs_rms.mean.copy(), "var": norm.obs_rms.var.copy(), "count": norm.obs_rms.count},
+        "obs_rms": obs_rms_state(env),
         "rng": {
             "torch": torch.get_rng_state(), "numpy": np.random.get_state(),
             "env": env.unwrapped.np_random.bit_generator.state,

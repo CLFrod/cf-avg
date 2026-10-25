@@ -61,7 +61,8 @@ grep -h '"step"' $SCRATCH/results/*/checkpoint.json | sort | uniq -c   # progres
 ```
 
 Each run folder `$SCRATCH/results/<name>-<env>-<seed>-<date>/` holds `metrics.csv` (one row per episode,
-flushed as written), `run.log`, `checkpoint.pt/json`, the learning-curve PNG, and `<run_id>_video_<step>.mp4`.
+flushed as written), `run.log`, `checkpoint.pt/json`, the learning-curve PNG, `<run_id>_video_<step>.mp4`, and
+`<run_id>_model_<step>.pt` snapshots every 1M steps (actor, critic, optimizers, observation normaliser).
 `step / wall_time` in `checkpoint.json` is the run's real throughput.
 
 ## 5. Resume

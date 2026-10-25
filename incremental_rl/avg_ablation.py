@@ -275,12 +275,15 @@ class AVG:
         self._reset_episode_stats()
         return stats
 
-    def save(self, model_dir, unique_str):
+    def save(self, model_dir, unique_str, env=None):
+        """ Model snapshot: networks, optimizers and (with env) the observation normaliser's statistics, which the
+        actor needs to be run on raw observations later """
         model = {
             "actor": self.actor.state_dict(),
             "critic": self.Q.state_dict(),
             "policy_opt": self.popt.state_dict(),
             "critic_opt": self.qopt.state_dict(),
+            "obs_rms": ckpt.obs_rms_state(env) if env is not None else None,
         }
         torch.save(model, "%s/%s.pt" % (model_dir, unique_str))
 
@@ -437,10 +440,11 @@ def main(args):
 
             obs_t = next_obs_t
 
-            if t % args.checkpoint == 0 and args.save_model:
+            if args.save_model and args.save_model_every and t % args.save_model_every == 0 and t > 0:
                 agent.save(
                     model_dir=args.results_dir,
                     unique_str=f"{expt.run_id}_model_{human_format_numbers(t)}",
+                    env=env,
                 )
 
             # Termination
@@ -523,7 +527,7 @@ def main(args):
                   complete=t + 1 >= args.N)
 
     if args.save_model:
-        agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model")
+        agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model", env=env)
 
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time() - tic))
     wandb.finish()
@@ -576,7 +580,10 @@ def get_parser(add_help=True):
     )
     parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--do_not_save", action="store_true", default=False)
-    parser.add_argument("--save_model", action="store_true", default=False)
+    parser.add_argument("--save_model", action="store_true", default=False,
+                        help="Save <run_id>_model_<step>.pt every --save_model_every steps and <run_id>_model.pt at the end")
+    parser.add_argument("--save_model_every", default=1000000, type=int,
+                        help="Model snapshot interval in steps when --save_model (0 = only at the end)")
     parser.add_argument("--load_model", type=str, default="")
     parser.add_argument("--description", default="", type=str)
     parser.add_argument(
