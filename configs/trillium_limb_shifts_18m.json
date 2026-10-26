@@ -1,0 +1,343 @@
+{
+  "_comment": [
+    "Adaptation to per-limb / per-joint dynamics shifts on Hopper-v4, Ant-v4, Humanoid-v4: 18M steps per run, 3 seeds,",
+    "no baselines (the 24M run `trillium_dynamics_3env_24m.json` is the baseline: same seeds 18606, 16858, 63790, same",
+    "hyperparameters). Companion of `trillium_dynamics_shifts_18m.json` (global shifts) with the same layout:",
+    "20 experiments x 3 envs x 3 seeds = 180 runs on one 192-core node, ~10-12.5 h.",
+    "Two-segment runs switch at 9M; three-segment runs switch at 6M and 12M.",
+    "Shift types (none of them used before):",
+    "  mass_rand     every body's mass (and inertia) x a factor drawn log-uniformly from [0.5, 2]",
+    "  friction_rand every limb geom's sliding friction x [0.3, 2]; the floor is set to 0.3 so that the limb's own value",
+    "                governs each contact (MuJoCo takes the max of the two touching geoms' friction)",
+    "  damping_rand  every joint's damping x [0.33, 3]",
+    "  gear_rand     every actuator's gear (motor strength) x [0.5, 1.5]",
+    "  limb_heavy    one limb's bodies x 3 (Hopper thigh / foot, Ant front-left / back-right leg, Humanoid right / left leg)",
+    "The random factors are drawn once (numpy seed 20261026) and written into this file as absolute values, so every seed",
+    "and every experiment using 'draw A' of a type sees exactly the same model; 'draw B' is an independent second draw.",
+    "Values are per env (each has its own body/geom/joint/actuator names), so all experiments are given through `per_env`.",
+    "Named mods set absolute values; a `*_scale: 1.0` resets that whole field to the original model, which is how a",
+    "condition is undone when going back to base or switching to a different type.",
+    "Groups: 1-7 base -> new world (5 single types, 2 compounds); 8-12 shifted world -> base;",
+    "13-20 three segments (there-and-back, re-randomisation A -> B of the same type, switches between types, and the",
+    "heavy limb moving to a different limb).",
+    "Videos: n_eval episodes every video_every steps, at each switch (just before it) and at the end.",
+    "Model snapshots every 1M steps and at the end."
+  ],
+
+  "defaults": {
+    "N": 18000000,
+    "seeds": [18606, 16858, 63790],
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true,
+    "n_eval": 2,
+    "video_every": 3000000,
+    "save_model": true,
+    "save_model_every": 1000000
+  },
+
+  "envs": {
+    "Hopper-v4": {"actor_lr": 1.1e-05, "critic_lr": 7.7e-05, "alpha_lr": 0.3},
+    "Ant-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
+    "Humanoid-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07}
+  },
+
+  "experiments": [
+    {"name": "base_to_mass_rand",
+     "_": "1. base for 9M, then every body mass x [0.5, 2] (draw A)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}}}]
+       }
+     }},
+
+    {"name": "base_to_friction_rand",
+     "_": "2. base for 9M, then every limb geom's sliding friction x [0.3, 2], floor set to 0.3 (draw A)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}}}]
+       }
+     }},
+
+    {"name": "base_to_damping_rand",
+     "_": "3. base for 9M, then every joint's damping x [0.33, 3] (draw A)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"damping": {"thigh_joint": 2.108, "leg_joint": 0.418, "foot_joint": 1.066}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"damping": {"hip_1": 0.5075, "ankle_1": 0.4783, "hip_2": 1.387, "ankle_2": 0.8971, "hip_3": 2.845, "ankle_3": 1.605, "hip_4": 1.845, "ankle_4": 0.7418}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"damping": {"abdomen_z": 5.984, "abdomen_y": 2.205, "abdomen_x": 13.75, "right_hip_x": 9.917, "right_hip_z": 2.324, "right_hip_y": 3.931, "right_knee": 0.6568, "left_hip_x": 7.776, "left_hip_z": 14.0, "left_hip_y": 3.297, "left_knee": 0.6195, "right_shoulder1": 0.7252, "right_shoulder2": 1.856, "right_elbow": 0.5497, "left_shoulder1": 1.364, "left_shoulder2": 2.029, "left_elbow": 0.7615}}}]
+       }
+     }},
+
+    {"name": "base_to_gear_rand",
+     "_": "4. base for 9M, then every actuator's gear x [0.5, 1.5] (draw A)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}}}]
+       }
+     }},
+
+    {"name": "base_to_limb_heavy",
+     "_": "5. base for 9M, then one limb 3x heavier (Hopper thigh, Ant front-left leg, Humanoid right leg)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"thigh": 12.17}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"front_left_leg": 0.1175, "aux_1": 0.1175, "4": 0.2028}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"right_thigh": 14.26, "right_shin": 8.267, "right_foot": 5.301}}}]
+       }
+     }},
+
+    {"name": "base_to_mass_friction_rand",
+     "_": "6. base for 9M, then random masses and frictions together (draws A)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}, "friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}, "friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}, "friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}}}]
+       }
+     }},
+
+    {"name": "base_to_all_rand",
+     "_": "7. base for 9M, then random masses, frictions, dampings and gears together (draws A)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}, "friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}, "damping": {"thigh_joint": 2.108, "leg_joint": 0.418, "foot_joint": 1.066}, "gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}, "friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}, "damping": {"hip_1": 0.5075, "ankle_1": 0.4783, "hip_2": 1.387, "ankle_2": 0.8971, "hip_3": 2.845, "ankle_3": 1.605, "hip_4": 1.845, "ankle_4": 0.7418}, "gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 9000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}, "friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}, "damping": {"abdomen_z": 5.984, "abdomen_y": 2.205, "abdomen_x": 13.75, "right_hip_x": 9.917, "right_hip_z": 2.324, "right_hip_y": 3.931, "right_knee": 0.6568, "left_hip_x": 7.776, "left_hip_z": 14.0, "left_hip_y": 3.297, "left_knee": 0.6195, "right_shoulder1": 0.7252, "right_shoulder2": 1.856, "right_elbow": 0.5497, "left_shoulder1": 1.364, "left_shoulder2": 2.029, "left_elbow": 0.7615}, "gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}}}]
+       }
+     }},
+
+    {"name": "mass_rand_to_base",
+     "_": "8. every body mass x [0.5, 2] (draw A) for 9M, then base",
+     "per_env": {
+       "Hopper-v4": {
+         "env_mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}},
+         "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0}}]
+       },
+       "Ant-v4": {
+         "env_mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}},
+         "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0}}]
+       },
+       "Humanoid-v4": {
+         "env_mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}},
+         "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0}}]
+       }
+     }},
+
+    {"name": "friction_rand_to_base",
+     "_": "9. every limb geom's sliding friction x [0.3, 2], floor set to 0.3 (draw A) for 9M, then base",
+     "per_env": {
+       "Hopper-v4": {
+         "env_mods": {"friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}},
+         "schedule": [{"step": 9000000, "mods": {"friction_scale": 1.0}}]
+       },
+       "Ant-v4": {
+         "env_mods": {"friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}},
+         "schedule": [{"step": 9000000, "mods": {"friction_scale": 1.0}}]
+       },
+       "Humanoid-v4": {
+         "env_mods": {"friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}},
+         "schedule": [{"step": 9000000, "mods": {"friction_scale": 1.0}}]
+       }
+     }},
+
+    {"name": "damping_rand_to_base",
+     "_": "10. every joint's damping x [0.33, 3] (draw A) for 9M, then base",
+     "per_env": {
+       "Hopper-v4": {
+         "env_mods": {"damping": {"thigh_joint": 2.108, "leg_joint": 0.418, "foot_joint": 1.066}},
+         "schedule": [{"step": 9000000, "mods": {"damping_scale": 1.0}}]
+       },
+       "Ant-v4": {
+         "env_mods": {"damping": {"hip_1": 0.5075, "ankle_1": 0.4783, "hip_2": 1.387, "ankle_2": 0.8971, "hip_3": 2.845, "ankle_3": 1.605, "hip_4": 1.845, "ankle_4": 0.7418}},
+         "schedule": [{"step": 9000000, "mods": {"damping_scale": 1.0}}]
+       },
+       "Humanoid-v4": {
+         "env_mods": {"damping": {"abdomen_z": 5.984, "abdomen_y": 2.205, "abdomen_x": 13.75, "right_hip_x": 9.917, "right_hip_z": 2.324, "right_hip_y": 3.931, "right_knee": 0.6568, "left_hip_x": 7.776, "left_hip_z": 14.0, "left_hip_y": 3.297, "left_knee": 0.6195, "right_shoulder1": 0.7252, "right_shoulder2": 1.856, "right_elbow": 0.5497, "left_shoulder1": 1.364, "left_shoulder2": 2.029, "left_elbow": 0.7615}},
+         "schedule": [{"step": 9000000, "mods": {"damping_scale": 1.0}}]
+       }
+     }},
+
+    {"name": "gear_rand_to_base",
+     "_": "11. every actuator's gear x [0.5, 1.5] (draw A) for 9M, then base",
+     "per_env": {
+       "Hopper-v4": {
+         "env_mods": {"gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}},
+         "schedule": [{"step": 9000000, "mods": {"gear_scale": 1.0}}]
+       },
+       "Ant-v4": {
+         "env_mods": {"gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}},
+         "schedule": [{"step": 9000000, "mods": {"gear_scale": 1.0}}]
+       },
+       "Humanoid-v4": {
+         "env_mods": {"gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}},
+         "schedule": [{"step": 9000000, "mods": {"gear_scale": 1.0}}]
+       }
+     }},
+
+    {"name": "all_rand_to_base",
+     "_": "12. random masses, frictions, dampings and gears (draws A) for 9M, then base",
+     "per_env": {
+       "Hopper-v4": {
+         "env_mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}, "friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}, "damping": {"thigh_joint": 2.108, "leg_joint": 0.418, "foot_joint": 1.066}, "gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}},
+         "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0, "friction_scale": 1.0, "damping_scale": 1.0, "gear_scale": 1.0}}]
+       },
+       "Ant-v4": {
+         "env_mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}, "friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}, "damping": {"hip_1": 0.5075, "ankle_1": 0.4783, "hip_2": 1.387, "ankle_2": 0.8971, "hip_3": 2.845, "ankle_3": 1.605, "hip_4": 1.845, "ankle_4": 0.7418}, "gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}},
+         "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0, "friction_scale": 1.0, "damping_scale": 1.0, "gear_scale": 1.0}}]
+       },
+       "Humanoid-v4": {
+         "env_mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}, "friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}, "damping": {"abdomen_z": 5.984, "abdomen_y": 2.205, "abdomen_x": 13.75, "right_hip_x": 9.917, "right_hip_z": 2.324, "right_hip_y": 3.931, "right_knee": 0.6568, "left_hip_x": 7.776, "left_hip_z": 14.0, "left_hip_y": 3.297, "left_knee": 0.6195, "right_shoulder1": 0.7252, "right_shoulder2": 1.856, "right_elbow": 0.5497, "left_shoulder1": 1.364, "left_shoulder2": 2.029, "left_elbow": 0.7615}, "gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}},
+         "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0, "friction_scale": 1.0, "damping_scale": 1.0, "gear_scale": 1.0}}]
+       }
+     }},
+
+    {"name": "base_mass_rand_base",
+     "_": "13. base -> random masses (A) -> base",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}}}, {"step": 12000000, "mods": {"mass_scale": 1.0}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}}}, {"step": 12000000, "mods": {"mass_scale": 1.0}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}}}, {"step": 12000000, "mods": {"mass_scale": 1.0}}]
+       }
+     }},
+
+    {"name": "base_mass_rand_A_B",
+     "_": "14. base -> mass_rand draw A -> mass_rand draw B (re-randomised, same ranges)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}}}, {"step": 12000000, "mods": {"mass": {"torso": 4.415, "thigh": 3.112, "leg": 4.527, "foot": 4.753}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}}}, {"step": 12000000, "mods": {"mass": {"torso": 0.3881, "front_left_leg": 0.07589, "aux_1": 0.03495, "4": 0.05464, "front_right_leg": 0.03778, "aux_2": 0.05486, "7": 0.05333, "back_leg": 0.06107, "aux_3": 0.02623, "10": 0.03944, "right_back_leg": 0.05066, "aux_4": 0.02366, "13": 0.09917}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}}}, {"step": 12000000, "mods": {"mass": {"torso": 4.889, "lwaist": 2.191, "pelvis": 8.051, "right_thigh": 3.848, "right_shin": 3.623, "right_foot": 1.211, "left_thigh": 5.939, "left_shin": 3.044, "left_foot": 1.537, "right_upper_arm": 2.83, "right_lower_arm": 2.131, "left_upper_arm": 0.862, "left_lower_arm": 0.8378}}}]
+       }
+     }},
+
+    {"name": "base_friction_rand_A_B",
+     "_": "15. base -> friction_rand draw A -> friction_rand draw B (re-randomised, same ranges)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}}}, {"step": 12000000, "mods": {"friction": {"floor": 0.3, "torso_geom": 1.435, "thigh_geom": 1.023, "leg_geom": 1.584, "foot_geom": 1.482}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}}}, {"step": 12000000, "mods": {"friction": {"floor": 0.3, "torso_geom": 0.9659, "aux_1_geom": 1.777, "left_leg_geom": 0.7651, "left_ankle_geom": 1.645, "aux_2_geom": 1.328, "right_leg_geom": 0.3341, "right_ankle_geom": 1.69, "aux_3_geom": 1.876, "back_leg_geom": 0.5074, "third_ankle_geom": 0.7735, "aux_4_geom": 0.7552, "rightback_leg_geom": 1.212, "fourth_ankle_geom": 1.257}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}}}, {"step": 12000000, "mods": {"friction": {"floor": 0.3, "torso1": 0.6322, "head": 1.971, "uwaist": 0.6871, "lwaist": 1.944, "butt": 0.3582, "right_thigh1": 1.301, "right_shin1": 0.904, "right_foot": 1.048, "left_thigh1": 1.069, "left_shin1": 0.4027, "left_foot": 0.4684, "right_uarm1": 0.4126, "right_larm": 0.7175, "right_hand": 0.972, "left_uarm1": 0.7713, "left_larm": 0.3989, "left_hand": 0.5088}}}]
+       }
+     }},
+
+    {"name": "base_gear_rand_A_B",
+     "_": "16. base -> gear_rand draw A -> gear_rand draw B (re-randomised, same ranges)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}}}, {"step": 12000000, "mods": {"gear": {"thigh_joint": 229.9, "leg_joint": 188.3, "foot_joint": 125.8}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}}}, {"step": 12000000, "mods": {"gear": {"hip_4": 82.52, "ankle_4": 136.5, "hip_1": 126.8, "ankle_1": 177.3, "hip_2": 171.9, "ankle_2": 128.0, "hip_3": 209.9, "ankle_3": 92.75}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}}}, {"step": 12000000, "mods": {"gear": {"abdomen_y": 64.7, "abdomen_z": 66.41, "abdomen_x": 71.83, "right_hip_x": 63.36, "right_hip_z": 73.45, "right_hip_y": 165.1, "right_knee": 200.6, "left_hip_x": 108.3, "left_hip_z": 89.39, "left_hip_y": 309.3, "left_knee": 226.3, "right_shoulder1": 27.8, "right_shoulder2": 36.96, "right_elbow": 20.94, "left_shoulder1": 21.23, "left_shoulder2": 19.18, "left_elbow": 27.71}}}]
+       }
+     }},
+
+    {"name": "base_all_rand_A_B",
+     "_": "17. base -> all four randomised (draws A) -> all four re-randomised (draws B)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}, "friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}, "damping": {"thigh_joint": 2.108, "leg_joint": 0.418, "foot_joint": 1.066}, "gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}}}, {"step": 12000000, "mods": {"mass": {"torso": 4.415, "thigh": 3.112, "leg": 4.527, "foot": 4.753}, "friction": {"floor": 0.3, "torso_geom": 1.435, "thigh_geom": 1.023, "leg_geom": 1.584, "foot_geom": 1.482}, "damping": {"thigh_joint": 0.3569, "leg_joint": 1.178, "foot_joint": 1.2}, "gear": {"thigh_joint": 229.9, "leg_joint": 188.3, "foot_joint": 125.8}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}, "friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}, "damping": {"hip_1": 0.5075, "ankle_1": 0.4783, "hip_2": 1.387, "ankle_2": 0.8971, "hip_3": 2.845, "ankle_3": 1.605, "hip_4": 1.845, "ankle_4": 0.7418}, "gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}}}, {"step": 12000000, "mods": {"mass": {"torso": 0.3881, "front_left_leg": 0.07589, "aux_1": 0.03495, "4": 0.05464, "front_right_leg": 0.03778, "aux_2": 0.05486, "7": 0.05333, "back_leg": 0.06107, "aux_3": 0.02623, "10": 0.03944, "right_back_leg": 0.05066, "aux_4": 0.02366, "13": 0.09917}, "friction": {"floor": 0.3, "torso_geom": 0.9659, "aux_1_geom": 1.777, "left_leg_geom": 0.7651, "left_ankle_geom": 1.645, "aux_2_geom": 1.328, "right_leg_geom": 0.3341, "right_ankle_geom": 1.69, "aux_3_geom": 1.876, "back_leg_geom": 0.5074, "third_ankle_geom": 0.7735, "aux_4_geom": 0.7552, "rightback_leg_geom": 1.212, "fourth_ankle_geom": 1.257}, "damping": {"hip_1": 0.9213, "ankle_1": 0.3815, "hip_2": 0.8718, "ankle_2": 0.7595, "hip_3": 2.108, "ankle_3": 1.94, "hip_4": 2.315, "ankle_4": 2.449}, "gear": {"hip_4": 82.52, "ankle_4": 136.5, "hip_1": 126.8, "ankle_1": 177.3, "hip_2": 171.9, "ankle_2": 128.0, "hip_3": 209.9, "ankle_3": 92.75}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}, "friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}, "damping": {"abdomen_z": 5.984, "abdomen_y": 2.205, "abdomen_x": 13.75, "right_hip_x": 9.917, "right_hip_z": 2.324, "right_hip_y": 3.931, "right_knee": 0.6568, "left_hip_x": 7.776, "left_hip_z": 14.0, "left_hip_y": 3.297, "left_knee": 0.6195, "right_shoulder1": 0.7252, "right_shoulder2": 1.856, "right_elbow": 0.5497, "left_shoulder1": 1.364, "left_shoulder2": 2.029, "left_elbow": 0.7615}, "gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}}}, {"step": 12000000, "mods": {"mass": {"torso": 4.889, "lwaist": 2.191, "pelvis": 8.051, "right_thigh": 3.848, "right_shin": 3.623, "right_foot": 1.211, "left_thigh": 5.939, "left_shin": 3.044, "left_foot": 1.537, "right_upper_arm": 2.83, "right_lower_arm": 2.131, "left_upper_arm": 0.862, "left_lower_arm": 0.8378}, "friction": {"floor": 0.3, "torso1": 0.6322, "head": 1.971, "uwaist": 0.6871, "lwaist": 1.944, "butt": 0.3582, "right_thigh1": 1.301, "right_shin1": 0.904, "right_foot": 1.048, "left_thigh1": 1.069, "left_shin1": 0.4027, "left_foot": 0.4684, "right_uarm1": 0.4126, "right_larm": 0.7175, "right_hand": 0.972, "left_uarm1": 0.7713, "left_larm": 0.3989, "left_hand": 0.5088}, "damping": {"abdomen_z": 5.931, "abdomen_y": 4.753, "abdomen_x": 6.455, "right_hip_x": 3.008, "right_hip_z": 11.01, "right_hip_y": 3.8, "right_knee": 2.324, "left_hip_x": 2.14, "left_hip_z": 6.805, "left_hip_y": 13.75, "left_knee": 2.268, "right_shoulder1": 1.77, "right_shoulder2": 0.5145, "right_elbow": 1.014, "left_shoulder1": 2.811, "left_shoulder2": 1.07, "left_elbow": 0.824}, "gear": {"abdomen_y": 64.7, "abdomen_z": 66.41, "abdomen_x": 71.83, "right_hip_x": 63.36, "right_hip_z": 73.45, "right_hip_y": 165.1, "right_knee": 200.6, "left_hip_x": 108.3, "left_hip_z": 89.39, "left_hip_y": 309.3, "left_knee": 226.3, "right_shoulder1": 27.8, "right_shoulder2": 36.96, "right_elbow": 20.94, "left_shoulder1": 21.23, "left_shoulder2": 19.18, "left_elbow": 27.71}}}]
+       }
+     }},
+
+    {"name": "base_mass_rand_friction_rand",
+     "_": "18. base -> random masss (A) -> random frictions (A), the mass change undone",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 2.451, "thigh": 2.13, "leg": 2.136, "foot": 7.611}}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "friction": {"floor": 0.3, "torso_geom": 0.3379, "thigh_geom": 0.3645, "leg_geom": 0.3253, "foot_geom": 1.014}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 0.2863, "front_left_leg": 0.06997, "aux_1": 0.03789, "4": 0.03436, "front_right_leg": 0.02896, "aux_2": 0.03811, "7": 0.04068, "back_leg": 0.02084, "aux_3": 0.02546, "10": 0.04626, "right_back_leg": 0.04867, "aux_4": 0.04634, "13": 0.05869}}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "friction": {"floor": 0.3, "torso_geom": 0.4865, "aux_1_geom": 1.254, "left_leg_geom": 0.65, "left_ankle_geom": 0.4897, "aux_2_geom": 0.568, "right_leg_geom": 0.6993, "right_ankle_geom": 0.6805, "aux_3_geom": 1.226, "back_leg_geom": 0.5397, "third_ankle_geom": 1.555, "aux_4_geom": 0.7688, "rightback_leg_geom": 0.6191, "fourth_ankle_geom": 0.3359}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"torso": 8.98, "lwaist": 3.985, "pelvis": 12.25, "right_thigh": 2.848, "right_shin": 1.469, "right_foot": 2.876, "left_thigh": 9.154, "left_shin": 1.826, "left_foot": 1.746, "right_upper_arm": 2.79, "right_lower_arm": 1.003, "left_upper_arm": 3.245, "left_lower_arm": 0.7329}}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "friction": {"floor": 0.3, "torso1": 0.3517, "head": 1.884, "uwaist": 0.497, "lwaist": 0.5838, "butt": 0.5112, "right_thigh1": 0.3303, "right_shin1": 0.339, "right_foot": 0.8449, "left_thigh1": 0.5136, "left_shin1": 1.134, "left_foot": 1.619, "right_uarm1": 0.8458, "right_larm": 0.5291, "right_hand": 1.148, "left_uarm1": 1.084, "left_larm": 0.3472, "left_hand": 1.832}}}]
+       }
+     }},
+
+    {"name": "base_gear_rand_damping_rand",
+     "_": "19. base -> random gears (A) -> random dampings (A), the gear change undone",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"gear": {"thigh_joint": 248.4, "leg_joint": 210.6, "foot_joint": 161.1}}}, {"step": 12000000, "mods": {"gear_scale": 1.0, "damping": {"thigh_joint": 2.108, "leg_joint": 0.418, "foot_joint": 1.066}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"gear": {"hip_4": 214.3, "ankle_4": 172.3, "hip_1": 137.4, "ankle_1": 91.79, "hip_2": 83.18, "ankle_2": 180.3, "hip_3": 83.81, "ankle_3": 118.2}}}, {"step": 12000000, "mods": {"gear_scale": 1.0, "damping": {"hip_1": 0.5075, "ankle_1": 0.4783, "hip_2": 1.387, "ankle_2": 0.8971, "hip_3": 2.845, "ankle_3": 1.605, "hip_4": 1.845, "ankle_4": 0.7418}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"gear": {"abdomen_y": 80.84, "abdomen_z": 106.8, "abdomen_x": 127.1, "right_hip_x": 81.78, "right_hip_z": 58.58, "right_hip_y": 208.8, "right_knee": 135.9, "left_hip_x": 50.67, "left_hip_z": 89.97, "left_hip_y": 313.9, "left_knee": 147.5, "right_shoulder1": 15.21, "right_shoulder2": 21.47, "right_elbow": 21.46, "left_shoulder1": 14.64, "left_shoulder2": 13.66, "left_elbow": 24.48}}}, {"step": 12000000, "mods": {"gear_scale": 1.0, "damping": {"abdomen_z": 5.984, "abdomen_y": 2.205, "abdomen_x": 13.75, "right_hip_x": 9.917, "right_hip_z": 2.324, "right_hip_y": 3.931, "right_knee": 0.6568, "left_hip_x": 7.776, "left_hip_z": 14.0, "left_hip_y": 3.297, "left_knee": 0.6195, "right_shoulder1": 0.7252, "right_shoulder2": 1.856, "right_elbow": 0.5497, "left_shoulder1": 1.364, "left_shoulder2": 2.029, "left_elbow": 0.7615}}}]
+       }
+     }},
+
+    {"name": "base_limb_heavy_1_2",
+     "_": "20. base -> one limb 3x heavier -> a different limb 3x heavier instead (Hopper thigh then foot, Ant front-left then back-right leg, Humanoid right then left leg)",
+     "per_env": {
+       "Hopper-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"thigh": 12.17}}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "mass": {"foot": 15.95}}}]
+       },
+       "Ant-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"front_left_leg": 0.1175, "aux_1": 0.1175, "4": 0.2028}}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "mass": {"right_back_leg": 0.1175, "aux_4": 0.1175, "13": 0.2028}}}]
+       },
+       "Humanoid-v4": {
+         "schedule": [{"step": 6000000, "mods": {"mass": {"right_thigh": 14.26, "right_shin": 8.267, "right_foot": 5.301}}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "mass": {"left_thigh": 14.26, "left_shin": 8.267, "left_foot": 5.301}}}]
+       }
+     }}
+  ]
+}

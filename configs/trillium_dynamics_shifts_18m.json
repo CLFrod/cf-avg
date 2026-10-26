@@ -1,0 +1,147 @@
+{
+  "_comment": [
+    "Adaptation to dynamics shifts on Hopper-v4, Ant-v4, Humanoid-v4: 18M steps per run, 3 seeds, no baselines",
+    "(the 24M run `trillium_dynamics_3env_24m.json` is the baseline: same seeds 18606, 16858, 63790, same hyperparameters).",
+    "20 experiments x 3 envs x 3 seeds = 180 runs on one 192-core node;",
+    "18M at 400-500 steps/s is ~10-12.5 h.",
+    "Two-segment runs switch at 9M; three-segment runs switch at 6M and 12M. The 24M base curves reach 90% of",
+    "their peak by ~6M (Ant), ~11M (Hopper), ~13M (Humanoid), so the Humanoid pre-shift policy is not fully converged.",
+    "Physics conditions use the same settings as the 24M baselines: moon gravity -1.62, gear_scale 2, friction_scale 0.3,",
+    "mass_scale 2. Scales are relative to the original model, so 1.0 restores the default; gravity -9.81 is Earth.",
+    "`moon_adapted` = Moon gravity + reward/termination changes. In the 24M run the mid termination bounds were the",
+    "only Moon variant that helped (Ant 1998 vs 1789, Hopper final 1419 vs 1183); removing or shrinking the healthy",
+    "reward collapsed learning on every env. Ant was the worst Moon env (37% of base), so it also gets a lower",
+    "control cost. Adapted settings: Hopper healthy_angle_range +-0.35 (default +-0.2); Ant healthy_z_range",
+    "[0.2, 1.5] (default [0.2, 1.0]) and ctrl_cost_weight 0.25 (default 0.5); Humanoid healthy_z_range [1.0, 2.75]",
+    "(default [1.0, 2.0]). Reward/termination kwargs set by a schedule stay until changed, so going back to base",
+    "spells out the defaults.",
+    "Groups: 1-7 base -> new world (4 single physics shifts, the adapted Moon, 2 compound shifts);",
+    "8-12 shifted world -> base; 13-20 three segments (there-and-back, adapt-after-the-fact, and chains of two",
+    "different physics shifts where the second replaces the first).",
+    "Videos: n_eval episodes every video_every steps, at each switch (just before it) and at the end.",
+    "Model snapshots every 1M steps and at the end."
+  ],
+
+  "defaults": {
+    "N": 18000000,
+    "seeds": [18606, 16858, 63790],
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true,
+    "n_eval": 2,
+    "video_every": 3000000,
+    "save_model": true,
+    "save_model_every": 1000000
+  },
+
+  "envs": {
+    "Hopper-v4": {"actor_lr": 1.1e-05, "critic_lr": 7.7e-05, "alpha_lr": 0.3},
+    "Ant-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
+    "Humanoid-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07}
+  },
+
+  "experiments": [
+    {"name": "base_to_moon",
+     "_": "1. base for 9M, then `moon` physics (reward/termination unchanged)",
+     "schedule": [{"step": 9000000, "mods": {"gravity": -1.62}}]},
+
+    {"name": "base_to_gear2x",
+     "_": "2. base for 9M, then `gear2x` physics (reward/termination unchanged)",
+     "schedule": [{"step": 9000000, "mods": {"gear_scale": 2.0}}]},
+
+    {"name": "base_to_slippery",
+     "_": "3. base for 9M, then `slippery` physics (reward/termination unchanged)",
+     "schedule": [{"step": 9000000, "mods": {"friction_scale": 0.3}}]},
+
+    {"name": "base_to_heavy",
+     "_": "4. base for 9M, then `heavy` physics (reward/termination unchanged)",
+     "schedule": [{"step": 9000000, "mods": {"mass_scale": 2.0}}]},
+
+    {"name": "base_to_moon_adapted",
+     "_": "5. base for 9M, then Moon gravity with the adapted reward/termination (see header)",
+     "per_env": {
+       "Hopper-v4": {"schedule": [{"step": 9000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_angle_range": [-0.35, 0.35]}}]},
+       "Ant-v4": {"schedule": [{"step": 9000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [0.2, 1.5], "ctrl_cost_weight": 0.25}}]},
+       "Humanoid-v4": {"schedule": [{"step": 9000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [1.0, 2.75]}}]}
+     }},
+
+    {"name": "base_to_moon_slippery",
+     "_": "6. base for 9M, then Moon gravity and 0.3x friction together",
+     "schedule": [{"step": 9000000, "mods": {"gravity": -1.62, "friction_scale": 0.3}}]},
+
+    {"name": "base_to_heavy_gear2x",
+     "_": "7. base for 9M, then 2x mass and 2x gear together (same force/mass, different contacts)",
+     "schedule": [{"step": 9000000, "mods": {"mass_scale": 2.0, "gear_scale": 2.0}}]},
+
+    {"name": "moon_to_base",
+     "_": "8. `moon` physics for 9M, then base",
+     "env_mods": {"gravity": -1.62},
+     "schedule": [{"step": 9000000, "mods": {"gravity": -9.81}}]},
+
+    {"name": "gear2x_to_base",
+     "_": "9. `gear2x` physics for 9M, then base",
+     "env_mods": {"gear_scale": 2.0},
+     "schedule": [{"step": 9000000, "mods": {"gear_scale": 1.0}}]},
+
+    {"name": "slippery_to_base",
+     "_": "10. `slippery` physics for 9M, then base",
+     "env_mods": {"friction_scale": 0.3},
+     "schedule": [{"step": 9000000, "mods": {"friction_scale": 1.0}}]},
+
+    {"name": "heavy_to_base",
+     "_": "11. `heavy` physics for 9M, then base",
+     "env_mods": {"mass_scale": 2.0},
+     "schedule": [{"step": 9000000, "mods": {"mass_scale": 1.0}}]},
+
+    {"name": "moon_adapted_to_base",
+     "_": "12. Moon gravity with the adapted reward/termination for 9M, then base (defaults restored)",
+     "env_mods": {"gravity": -1.62},
+     "per_env": {
+       "Hopper-v4": {"env_kwargs": {"healthy_angle_range": [-0.35, 0.35]}, "schedule": [{"step": 9000000, "mods": {"gravity": -9.81}, "env_kwargs": {"healthy_angle_range": [-0.2, 0.2]}}]},
+       "Ant-v4": {"env_kwargs": {"healthy_z_range": [0.2, 1.5], "ctrl_cost_weight": 0.25}, "schedule": [{"step": 9000000, "mods": {"gravity": -9.81}, "env_kwargs": {"healthy_z_range": [0.2, 1.0], "ctrl_cost_weight": 0.5}}]},
+       "Humanoid-v4": {"env_kwargs": {"healthy_z_range": [1.0, 2.75]}, "schedule": [{"step": 9000000, "mods": {"gravity": -9.81}, "env_kwargs": {"healthy_z_range": [1.0, 2.0]}}]}
+     }},
+
+    {"name": "base_moon_base",
+     "_": "13. base -> Moon -> base (recovery after a shift)",
+     "schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}, {"step": 12000000, "mods": {"gravity": -9.81}}]},
+
+    {"name": "base_moon_moon_adapted",
+     "_": "14. base -> Moon -> Moon with the adapted reward/termination (does adapting the task after the fact rescue it?)",
+     "per_env": {
+       "Hopper-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}, {"step": 12000000, "env_kwargs": {"healthy_angle_range": [-0.35, 0.35]}}]},
+       "Ant-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}, {"step": 12000000, "env_kwargs": {"healthy_z_range": [0.2, 1.5], "ctrl_cost_weight": 0.25}}]},
+       "Humanoid-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}, {"step": 12000000, "env_kwargs": {"healthy_z_range": [1.0, 2.75]}}]}
+     }},
+
+    {"name": "base_moon_adapted_moon",
+     "_": "15. base -> adapted Moon -> plain Moon (the adaptation is removed under the same gravity)",
+     "per_env": {
+       "Hopper-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_angle_range": [-0.35, 0.35]}}, {"step": 12000000, "env_kwargs": {"healthy_angle_range": [-0.2, 0.2]}}]},
+       "Ant-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [0.2, 1.5], "ctrl_cost_weight": 0.25}}, {"step": 12000000, "env_kwargs": {"healthy_z_range": [0.2, 1.0], "ctrl_cost_weight": 0.5}}]},
+       "Humanoid-v4": {"schedule": [{"step": 6000000, "mods": {"gravity": -1.62}, "env_kwargs": {"healthy_z_range": [1.0, 2.75]}}, {"step": 12000000, "env_kwargs": {"healthy_z_range": [1.0, 2.0]}}]}
+     }},
+
+    {"name": "base_gear2x_heavy",
+     "_": "16. base -> `gear2x` -> `heavy` (the first shift is undone when the second is applied)",
+     "schedule": [{"step": 6000000, "mods": {"gear_scale": 2.0}}, {"step": 12000000, "mods": {"gear_scale": 1.0, "mass_scale": 2.0}}]},
+
+    {"name": "base_heavy_gear2x",
+     "_": "17. base -> `heavy` -> `gear2x` (the first shift is undone when the second is applied)",
+     "schedule": [{"step": 6000000, "mods": {"mass_scale": 2.0}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "gear_scale": 2.0}}]},
+
+    {"name": "base_slippery_moon",
+     "_": "18. base -> `slippery` -> `moon` (the first shift is undone when the second is applied)",
+     "schedule": [{"step": 6000000, "mods": {"friction_scale": 0.3}}, {"step": 12000000, "mods": {"friction_scale": 1.0, "gravity": -1.62}}]},
+
+    {"name": "base_moon_slippery",
+     "_": "19. base -> `moon` -> `slippery` (the first shift is undone when the second is applied)",
+     "schedule": [{"step": 6000000, "mods": {"gravity": -1.62}}, {"step": 12000000, "mods": {"gravity": -9.81, "friction_scale": 0.3}}]},
+
+    {"name": "base_heavy_slippery",
+     "_": "20. base -> `heavy` -> `slippery` (the first shift is undone when the second is applied)",
+     "schedule": [{"step": 6000000, "mods": {"mass_scale": 2.0}}, {"step": 12000000, "mods": {"mass_scale": 1.0, "friction_scale": 0.3}}]}
+  ]
+}
