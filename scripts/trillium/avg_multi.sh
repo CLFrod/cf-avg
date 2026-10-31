@@ -12,6 +12,9 @@
 #     (add --dependency=afterany:<jobid> to queue it behind the first job automatically)
 #   more runs than one node holds:    one job per slice, SHARD=1/2 and SHARD=2/2 (same CONFIG)
 #   a single experiment without a config: CONFIG= plus RUN_ARGS="--env Hopper-v4 --N 12000000 ..." and NAME/N_RUNS
+#   utilisation profiling (this branch): MONITOR=1 (default) samples the node every MONITOR_INTERVAL s and every
+#     run process every MONITOR_PROC_INTERVAL s into MONITOR_DIR (default $RESULTS_DIR/monitor_<jobid>), pinned to
+#     a reserved core; see scripts/profiling/README.md. MONITOR=0 turns it off.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=192
@@ -36,6 +39,10 @@ if [ -z "$CONFIG$RESUME_FROM" ] && [ -z "$RUN_ARGS" ]; then
     RUN_ARGS="--env Hopper-v4 --N 12000000 --normalize_obs --pnorm --scaled_td"
 fi
 SHARD=${SHARD:-}                               # K/N: run only one of N interleaved slices (one job per node)
+MONITOR=${MONITOR:-1}                          # 1: record node + per-run utilisation to CSV while the job runs
+MONITOR_INTERVAL=${MONITOR_INTERVAL:-5}        # seconds between node / per-CPU samples
+MONITOR_PROC_INTERVAL=${MONITOR_PROC_INTERVAL:-30}   # seconds between per-process samples
+MONITOR_DIR=${MONITOR_DIR:-$RESULTS_DIR/monitor_${SLURM_JOB_ID:-$(date +%Y%m%d_%H%M%S)}}
 MODE_ARGS=()
 [ -n "$CONFIG" ] && MODE_ARGS=(--config "$CONFIG")
 [ -n "$RESUME_FROM" ] && MODE_ARGS=(--resume_from "$RESUME_FROM")
@@ -72,8 +79,35 @@ then :; else
     echo "OSMesa render FAILED: libOSMesa not loadable (see traceback above). Falling back to MUJOCO_GL=disable: NO VIDEOS."
     export MUJOCO_GL=disable
 fi
+# Utilisation monitor: a background sampler on the first reserved core (niced, so it never competes with a run).
+# It stops itself when this shell exits; on a normal finish it is told to stop and takes one last sample first.
+MONITOR_PID=
+if [ "$MONITOR" = 1 ]; then
+    mkdir -p "$MONITOR_DIR"
+    python scripts/profiling/node_monitor.py --out "$MONITOR_DIR" --interval "$MONITOR_INTERVAL" \
+        --proc_interval "$MONITOR_PROC_INTERVAL" --pin auto --watch_pid $$ > "$MONITOR_DIR/monitor.log" 2>&1 &
+    MONITOR_PID=$!
+    echo "monitor: pid $MONITOR_PID, node every ${MONITOR_INTERVAL}s, processes every ${MONITOR_PROC_INTERVAL}s -> $MONITOR_DIR"
+fi
+stop_monitor() {
+    if [ -n "$MONITOR_PID" ] && kill -0 "$MONITOR_PID" 2>/dev/null; then
+        kill -TERM "$MONITOR_PID" 2>/dev/null
+        wait "$MONITOR_PID" 2>/dev/null || true
+    fi
+}
+trap stop_monitor EXIT
+
 python -m incremental_rl.avg_multi_experiment "${MODE_ARGS[@]}" \
     --name "$NAME" --results_dir "$RESULTS_DIR" \
     --n_runs "$N_RUNS" --start_seed "$START_SEED" \
     --cores_per_run 1 --reserve_cores "$RESERVE_CORES" \
     --time_limit "$TIME_LIMIT" $RUN_ARGS
+
+if [ "$MONITOR" = 1 ]; then
+    stop_monitor
+    # Per-run throughput over time (steps/s from each metrics.csv), aligned to the monitor's clock, for the runs
+    # this job executed. Re-runnable later from a login node with the same command.
+    python scripts/profiling/collect_runs.py --monitor_dir "$MONITOR_DIR" --results_dir "$RESULTS_DIR" --no_episodes \
+        > "$MONITOR_DIR/collect_runs.log" 2>&1 || echo "collect_runs failed: see $MONITOR_DIR/collect_runs.log"
+    echo "profiling CSVs: $MONITOR_DIR"
+fi
