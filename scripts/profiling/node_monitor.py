@@ -131,7 +131,7 @@ def split_pct(now, before):
     d = [a - b for a, b in zip(now, before)]
     total = sum(d) or 1
     pct = {k: 100.0 * v / total for k, v in zip(CPU_FIELDS, d)}
-    pct["busy"] = 100.0 - pct["idle"] - pct["iowait"]
+    pct["busy"] = max(0.0, 100.0 - pct["idle"] - pct["iowait"])
     return pct
 
 
@@ -404,8 +404,8 @@ class Monitor:
         t = time.time()
         per_cpu, agg, extra = read_stat()
         dt = t_mono - self.prev["t"]
-        if dt <= 0 or agg is None:
-            return
+        if agg is None or dt < 0.2 * self.args.interval:
+            return      # too short a window for the tick counters to mean anything (e.g. the final sample right after a tick)
         elapsed = t_mono - self.t0_mono
         t_local = datetime.fromtimestamp(t).isoformat(timespec="seconds")
 
