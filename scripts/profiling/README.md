@@ -8,6 +8,7 @@ setup can be shown with graphs made afterwards. Nothing here changes how the run
 |---|---|
 | `node_monitor.py` | background sampler: node-wide CPU / memory, per-CPU busy %, per-run process usage -> CSV. Reads `/proc` and `/sys` only (no extra packages, no venv rebuild). |
 | `collect_runs.py` | after the job: each run's steps/s over time from its `metrics.csv`, on the same clock as the monitor -> CSV |
+| `plot_profile.py` | after copying the folders home: the figures and `summary.csv` below (matplotlib, which is already in the venv) |
 | `../trillium/avg_multi.sh` | (patched on this branch) starts the monitor before the launcher, stops it after, then runs `collect_runs.py` |
 
 ## Running it
@@ -120,6 +121,28 @@ are the only idle ones.
   the node is full, and compare against the baseline job for per-run slowdown from sharing the node.
 - `runs.csv` (only when run by hand without `--no_episodes`): every episode of every run with steps/s since the
   previous episode and cumulative.
+
+## Figures (`plot_profile.py`)
+
+```bash
+python scripts/profiling/plot_profile.py results_trillium/profiling/dynamics_18m/monitor_<id>     results_trillium/profiling/limb_18m/monitor_<id> --out results_trillium/profiling/figures
+```
+
+Labels default to the parent folder's name (`--labels` to override). Per job:
+
+| figure | shows |
+|---|---|
+| `<job>_utilisation.png` | cores in use and live runs vs the 192-core line; node busy / system / I/O-wait %; memory used, the job's cgroup memory and the summed run RSS vs the node's total, with the peak as a % |
+| `<job>_cpu_heatmap.png` | busy % of every CPU over the job (1-min means), rows grouped by socket and CCD; idle rows are named (the 4 reserved cores and any unused ones), and the tail shows which cores empty first |
+| `<job>_runs.png` | per-run process CPU % (1st-99th percentile band: every run at ~100 %), resident memory per run, involuntary context switches per second (low = nothing competing for the core) |
+| `<job>_throughput.png` | steps/s of each env over a run's wall time (median, interquartile band) and hours-to-complete per run, which is what makes the tail |
+| `<job>_load_vs_speed.png` | steps/s per env against how many runs were alive on the node: the per-run cost of a full node (clock boost and shared L3 / memory bandwidth) |
+
+Across jobs: `compare_cores.png` (cores in use per job) and `summary.csv` (one row per job, also printed): node and
+CPU, duration, runs launched / complete, steady-state cores in use and busy %, idle cores by design, core-hours used
+vs allocated (and vs launched), when the first run finished and the tail length, per-run CPU % and RSS, memory peak
+(GB and % of node, cgroup peak), swap, system and I/O-wait %, start-up seconds, and per env the run count, mean
+steps/s and min / max hours.
 
 ## Efficiency questions the data answers
 

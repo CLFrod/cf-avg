@@ -313,10 +313,7 @@ class Monitor:
         if agg is None:
             sys.exit(f"{PROC}/stat not readable: this monitor needs Linux")
         self.cpus = sorted(per_cpu)
-        try:
-            self.allowed = sorted(os.sched_getaffinity(0))
-        except AttributeError:
-            self.allowed = list(self.cpus)
+        self.allowed = args.allowed if args.allowed is not None else list(self.cpus)   # the job's CPUs, read before pinning
         self.btime = extra.get("btime", 0)
         self.topo = topology(self.cpus)
         self.sockets = sorted({v["socket"] for v in self.topo.values()})
@@ -585,8 +582,9 @@ def main():
             os.nice(args.nice)
         except OSError:
             pass
+    args.allowed = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None
     if args.pin is not None and hasattr(os, "sched_setaffinity"):
-        cpu = min(os.sched_getaffinity(0)) if args.pin == "auto" else int(args.pin)
+        cpu = min(args.allowed) if args.pin == "auto" else int(args.pin)
         os.sched_setaffinity(0, {cpu})
 
     mon = Monitor(args)
