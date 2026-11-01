@@ -111,6 +111,21 @@ class Job:
         P = np.array([np.percentile(by_t[t], q) for t in ts])
         return np.array(ts) / 3600, P
 
+    def env_finish_hours(self):
+        """{env: (first run finished, last run finished)} in hours since job start, from the last process sample
+        at which each run was alive (resolution: one --proc_interval)"""
+        hdr, rows = read_csv(os.path.join(self.dir, "procs.csv"))
+        ir, it, ie, irun = hdr.index("role"), hdr.index("elapsed_s"), hdr.index("env"), hdr.index("run")
+        last = {}
+        for r in rows:
+            if r[ir] == "run":
+                last[(r[ie], r[irun])] = float(r[it])
+        out = {}
+        for (env, _), t in last.items():
+            lo, hi = out.get(env, (np.inf, 0))
+            out[env] = (min(lo, t), max(hi, t))
+        return {env: (lo / 3600, hi / 3600) for env, (lo, hi) in out.items()}
+
     def run_summary(self):
         hdr, rows = read_csv(os.path.join(self.dir, "run_summary.csv"))
         g = lambda name: [r[hdr.index(name)] for r in rows]
@@ -137,15 +152,29 @@ class Job:
 
 
 # ------------------------------------------------------------------------------------------ helpers
-def hairline(ax, y, text, color=AXIS, below=False):
+def hairline(ax, y, text, color=AXIS, below=False, left=False):
     ax.axhline(y, color=color, linewidth=1, zorder=1)
-    ax.annotate(text, (1, y), xycoords=("axes fraction", "data"), xytext=(-2, -3 if below else 3),
-                textcoords="offset points", ha="right", va="top" if below else "bottom", fontsize=8, color=MUTED)
+    ax.annotate(text, (0 if left else 1, y), xycoords=("axes fraction", "data"),
+                xytext=(2 if left else -2, -3 if below else 3), textcoords="offset points",
+                ha="left" if left else "right", va="top" if below else "bottom", fontsize=8, color=MUTED)
 
 
 def end_label(ax, x, y, text, color=INK2, dy=0):
     ax.annotate(text, (x[-1], y[-1]), xytext=(4, dy), textcoords="offset points", ha="left", va="center",
                 fontsize=8, color=color)
+
+
+def mark_env_finishes(ax, job, y_frac=0.97):
+    """A vertical line where the last run of each env finished, labelled with the env and the hour"""
+    fin = job.env_finish_hours()
+    for k, env in enumerate(sorted(fin, key=lambda e: fin[e][1])):
+        lo, hi = fin[env]
+        c = SERIES[ENV_SLOT.get(env, 3)]
+        ax.axvline(hi, color=c, linewidth=1, zorder=1,
+                   label="last run of that env finished" if k == 0 else None)
+        ax.annotate(f"{env}, {hi:.1f} h", (hi, y_frac), xycoords=("data", "axes fraction"),
+                    xytext=(-3, 0), textcoords="offset points", rotation=90, ha="right", va="top", fontsize=8,
+                    color=INK2)
 
 
 def style_time_axis(ax, hours):
@@ -167,7 +196,8 @@ def fig_utilisation(job, out):
     ax.plot(h, cores, color=SERIES[0], label="cores in use (busy-time sum over all CPUs)")
     m = ~np.isnan(runs)
     ax.plot(h[m], runs[m], color=SERIES[1], label="live run processes")
-    hairline(ax, job.ncpu, f"{job.ncpu} cores on the node")
+    hairline(ax, job.ncpu, f"{job.ncpu} cores on the node", left=True)
+    mark_env_finishes(ax, job, y_frac=0.99)
     ax.set_ylim(0, job.ncpu * 1.08)
     ax.set_ylabel("cores")
     ax.set_title("Cores in use and runs alive")
@@ -274,6 +304,7 @@ def fig_core_average(job, out):
                 xytext=(0, -14), textcoords="offset points", ha="center", fontsize=8, color=INK2)
     ax.annotate(f"{np.nanmedian(work_mean[mid]):.1f} %", (hb[mid][len(hb[mid]) // 2], np.nanmedian(work_mean[mid])),
                 xytext=(0, 6), textcoords="offset points", ha="center", fontsize=8, color=INK2)
+    mark_env_finishes(ax, job, y_frac=0.99)
     ax.set_ylim(0, 108)
     ax.set_ylabel("average busy % per core (1-minute means)")
     ax.set_title(f"{job.label}: average core utilisation over the job")
