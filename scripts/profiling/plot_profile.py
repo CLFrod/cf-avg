@@ -170,8 +170,7 @@ def mark_env_finishes(ax, job, y_frac=0.97):
     for k, env in enumerate(sorted(fin, key=lambda e: fin[e][1])):
         lo, hi = fin[env]
         c = SERIES[ENV_SLOT.get(env, 3)]
-        ax.axvline(hi, color=c, linewidth=1, zorder=1,
-                   label="last run of that env finished" if k == 0 else None)
+        ax.axvline(hi, color=c, linewidth=1, zorder=1)
         ax.annotate(f"{env}, {hi:.1f} h", (hi, y_frac), xycoords=("data", "axes fraction"),
                     xytext=(-3, 0), textcoords="offset points", rotation=90, ha="right", va="top", fontsize=8,
                     color=INK2)
@@ -306,10 +305,11 @@ def fig_core_average(job, out):
                 xytext=(0, 6), textcoords="offset points", ha="center", fontsize=8, color=INK2)
     mark_env_finishes(ax, job, y_frac=0.99)
     ax.set_ylim(0, 108)
-    ax.set_ylabel("average busy % per core (1-minute means)")
-    ax.set_title(f"{job.label}: average core utilisation over the job")
+    ax.set_ylabel("Average Core Utilization (1-minute means)")
+    ax.set_title(f"{job.label}: Job Average Core Utilization")
     ax.legend(loc="lower left")
     style_time_axis(ax, hb)
+    ax.set_xlabel("Hours Since Job Start")
     fig.savefig(os.path.join(out, f"{job.label}_core_average.png"))
     plt.close(fig)
 
