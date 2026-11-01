@@ -132,6 +132,7 @@ Labels default to the parent folder's name (`--labels` to override). Per job:
 
 | figure | shows |
 |---|---|
+| `<job>_core_average.png` | the headline chart: average busy % per core over the job, for all 192 cores and for the cores that ran a job, with the ceiling set by the number of runs launched |
 | `<job>_utilisation.png` | cores in use and live runs vs the 192-core line; node busy / system / I/O-wait %; memory used, the job's cgroup memory and the summed run RSS vs the node's total, with the peak as a % |
 | `<job>_cpu_heatmap.png` | busy % of every CPU over the job (1-min means), rows grouped by socket and CCD; idle rows are named (the 4 reserved cores and any unused ones), and the tail shows which cores empty first |
 | `<job>_runs.png` | per-run process CPU % (1st-99th percentile band: every run at ~100 %), resident memory per run, involuntary context switches per second (low = nothing competing for the core) |

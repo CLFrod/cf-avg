@@ -6,6 +6,7 @@ Figures and a summary table from one or more node-monitor folders (node_monitor.
         results_trillium/profiling/limb_18m/monitor_2722894 --out results_trillium/profiling/figures
 
 Per monitor folder (prefixed with its label, by default the parent folder's name):
+  <label>_core_average.png   the headline: average busy % per core over the job, all cores and the cores running a job
   <label>_utilisation.png    cores in use and live runs, node CPU split, memory -- over the job
   <label>_cpu_heatmap.png    busy % of every CPU over time, rows grouped by socket / CCD: which cores idle, and when
   <label>_runs.png           per-run process behaviour over the job: CPU %, resident memory, involuntary switches
@@ -136,10 +137,10 @@ class Job:
 
 
 # ------------------------------------------------------------------------------------------ helpers
-def hairline(ax, y, text, color=AXIS):
+def hairline(ax, y, text, color=AXIS, below=False):
     ax.axhline(y, color=color, linewidth=1, zorder=1)
-    ax.annotate(text, (1, y), xycoords=("axes fraction", "data"), xytext=(-2, 3), textcoords="offset points",
-                ha="right", va="bottom", fontsize=8, color=MUTED)
+    ax.annotate(text, (1, y), xycoords=("axes fraction", "data"), xytext=(-2, -3 if below else 3),
+                textcoords="offset points", ha="right", va="top" if below else "bottom", fontsize=8, color=MUTED)
 
 
 def end_label(ax, x, y, text, color=INK2, dy=0):
@@ -253,6 +254,32 @@ def fig_cpu_heatmap(job, out):
     cb.outline.set_visible(False)
     cb.ax.tick_params(length=0, labelcolor=INK2)
     fig.savefig(os.path.join(out, f"{job.label}_cpu_heatmap.png"))
+    plt.close(fig)
+
+
+def fig_core_average(job, out):
+    """One line: average busy % over all cores through the job; a second over just the cores that ran a job"""
+    hb, M, topo = job.cpu_matrix(bin_minutes=1)
+    mid = (hb > hb[-1] * 0.25) & (hb < hb[-1] * 0.5)
+    working = np.array([np.nanmean(M[i, mid]) >= 50 for i in range(M.shape[0])])
+    n_all, n_work = M.shape[0], int(working.sum())
+    all_mean, work_mean = np.nanmean(M, axis=0), np.nanmean(M[working], axis=0)
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.plot(hb, work_mean, color=SERIES[1], label=f"the {n_work} cores that ran a job")
+    ax.plot(hb, all_mean, color=SERIES[0], label=f"all {n_all} cores on the node")
+    ceiling = 100 * n_work / n_all
+    hairline(ax, ceiling, "", below=True)
+    ax.annotate(f"{np.nanmedian(all_mean[mid]):.1f} %  (ceiling {ceiling:.1f} %: {n_work} of {n_all} cores have a run, "
+                f"{n_all - n_work} idle by design)", (hb[mid][len(hb[mid]) // 2], np.nanmedian(all_mean[mid])),
+                xytext=(0, -14), textcoords="offset points", ha="center", fontsize=8, color=INK2)
+    ax.annotate(f"{np.nanmedian(work_mean[mid]):.1f} %", (hb[mid][len(hb[mid]) // 2], np.nanmedian(work_mean[mid])),
+                xytext=(0, 6), textcoords="offset points", ha="center", fontsize=8, color=INK2)
+    ax.set_ylim(0, 108)
+    ax.set_ylabel("average busy % per core (1-minute means)")
+    ax.set_title(f"{job.label}: average core utilisation over the job")
+    ax.legend(loc="lower left")
+    style_time_axis(ax, hb)
+    fig.savefig(os.path.join(out, f"{job.label}_core_average.png"))
     plt.close(fig)
 
 
@@ -434,7 +461,7 @@ def main():
         print(f"{label}: {d}")
         job = Job(d, label)
         jobs.append(job)
-        for fn in (fig_utilisation, fig_cpu_heatmap, fig_runs, fig_throughput, fig_load_vs_speed):
+        for fn in (fig_core_average, fig_utilisation, fig_cpu_heatmap, fig_runs, fig_throughput, fig_load_vs_speed):
             try:
                 fn(job, out)
                 print(f"  {fn.__name__[4:]}.png")
