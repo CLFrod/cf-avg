@@ -283,13 +283,23 @@ def main(args):
     damp_i = 0
     damp_scale_v = 1.0
 
-    expt = ExperimentTracker(args, flip_steps=[s for s, _ in dynamics_schedule] + [s for s, _ in damping_schedule])
+    gravity_schedule = sorted(
+        (int(s), float(v)) for s, v in
+        (tok.split(':') for tok in args.gravity_schedule.split(',') if tok.strip())
+    )
+    grav_i = 0
+    grav_scale_v = 1.0
+
+    expt = ExperimentTracker(args, flip_steps=[s for s, _ in dynamics_schedule]
+                             + [s for s, _ in damping_schedule]
+                             + [s for s, _ in gravity_schedule])
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
     # Env
     env = gym.make(args.env, render_mode = "rgb_array", width=640, height=480)
     base_damping = env.unwrapped.model.dof_damping.copy()
     damping_dofs = np.flatnonzero(base_damping != 0)
+    base_gravity = env.unwrapped.model.opt.gravity.copy()
 
     _m = env.unwrapped.model
     joint_names = [mujoco.mj_id2name(_m, mujoco.mjtObj.mjOBJ_JOINT, j) for j in range(_m.njnt)]
@@ -331,6 +341,26 @@ def main(args):
                     f.write(line + "\n")
             except Exception as e:
                 print(f"(warning: could not write damping log: {e})", flush=True)
+
+    def apply_gravity():
+        env.unwrapped.model.opt.gravity[:] = base_gravity * grav_scale_v
+
+    gravity_log_path = os.path.join(args.results_dir, f"{expt.run_id}_gravity_changes.log")
+
+    def log_gravity_event(event, step):
+        cur = env.unwrapped.model.opt.gravity
+        detail = (f"gravity x{grav_scale_v:g} -> "
+                  f"[{cur[0]:.4g}, {cur[1]:.4g}, {cur[2]:.4g}] "
+                  f"(base [{base_gravity[0]:.4g}, {base_gravity[1]:.4g}, {base_gravity[2]:.4g}])")
+        line = f"[step {step}] {detail}"
+        print(f"[step {step}] {event}: {detail}", flush=True)
+        if not args.do_not_save:
+            try:
+                os.makedirs(args.results_dir, exist_ok=True)
+                with open(gravity_log_path, "a") as f:
+                    f.write(line + "\n")
+            except Exception as e:
+                print(f"(warning: could not write gravity log: {e})", flush=True)
 
     #### Reproducibility
     env.reset(seed=args.seed)
@@ -395,6 +425,15 @@ def main(args):
         apply_damping()
         print(f"[resume] dof_damping scale -> {damp_scale_v}{' on joints ' + str(damp_joints_v) if damp_joints_v else ''}", flush=True)
         log_damping_event("resume: restored damping", start_t - 1)
+
+        # GRAVITY RUN
+        grav_i = bisect.bisect_right([s for s, _ in gravity_schedule], start_t - 1) if start_t else 0
+        if meta.get('gravity_scale') is not None:
+            grav_scale_v = float(meta['gravity_scale'])
+        elif grav_i > 0:
+            grav_scale_v = gravity_schedule[grav_i - 1][1]
+        apply_gravity()
+        log_gravity_event("resume: restored gravity", start_t - 1)
         print("Resuming from step {} via {} (episodes so far: {})".format(start_t, args.load_model, len(rets)))
 
     ckpt_path = os.path.join(args.results_dir, f"{expt.run_id}_checkpoint.pt")
@@ -406,6 +445,7 @@ def main(args):
             friction=float(env.unwrapped.model.geom_friction[0, 0]),
             damping_scale=damp_scale_v,
             damping_joints=damp_joints_v,
+            gravity_scale=grav_scale_v,
         )
         print(f"[step {t+1}] checkpoint autosaved to {ckpt_path}", flush=True)
 
@@ -436,7 +476,13 @@ def main(args):
                 apply_damping()
                 log_damping_event("damping flip", t)
                 damp_i += 1
-            
+
+            if grav_i < len(gravity_schedule) and t >= gravity_schedule[grav_i][0]:
+                grav_scale_v = gravity_schedule[grav_i][1]
+                apply_gravity()
+                log_gravity_event("gravity flip", t)
+                grav_i += 1
+
             # Dump training metrics to logger
             stat = agent.update(obs, action, next_obs, reward, terminated, **action_info)
 
@@ -505,7 +551,7 @@ def main(args):
         save_ckpt()
 
     # Plot learning curves (returns + losses) 
-    flip_steps = [s for s, _ in dynamics_schedule] + [s for s, _ in damping_schedule]
+    flip_steps = [s for s, _ in dynamics_schedule] + [s for s, _ in damping_schedule] + [s for s, _ in gravity_schedule]
     if len(rets) > 0:
         save_learning_curve(rets, ep_steps, flip_steps,
                             f"{args.results_dir}/{expt.run_id}_learning_curve.png")
@@ -550,6 +596,7 @@ if __name__ == "__main__":
     parser.add_argument('--dynamics_schedule', default="", type=str, help='comma-separated "step:friction" pairs, e.g. "4000000:2.0,6000000:1.0,8000000:2.0"')
     parser.add_argument('--damping_schedule', default="", type=str, help='comma-separated "step:scale" pairs; scale multiplies per-joint dof_damping defaults, e.g. "3000000:2.0,6000000:0.5,9000000:4.0"')
     parser.add_argument('--damping_joints', default=0, type=int, help='number of random revolute joints to scale at each damping flip (0 = scale all joints)')
+    parser.add_argument('--gravity_schedule', default="", type=str, help='comma-separated "step:scale" pairs; scale multiplies the default gravity [0,0,-9.81], e.g. "6000000:0.1667" (~1/6 g at the midpoint of a 12M-step run)')
     # MLP params
     parser.add_argument('--actor_hidden_sizes', default="256,256", type=str)
     parser.add_argument('--critic_hidden_sizes', default="256,256", type=str)
