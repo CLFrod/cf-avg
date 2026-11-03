@@ -9,10 +9,10 @@
     "Seeds: 188 distinct values drawn once (numpy default_rng(20261103).choice(100000, 188, replace=False)) and",
     "written here so the job is reproducible.",
     "At the ~459 steps/s measured for Ant-v4 on a full shared node (18M profiles), 9M is ~5.4 h per run;",
-    "submit with --time=09:00:00 and TIME_LIMIT=8.5 (a slow run checkpoints and exits before the walltime) and its own",
+    "submit with --time=12:00:00 and TIME_LIMIT=11.5 (a slow run checkpoints and exits before the walltime) and its own",
     "RESULTS_DIR so the run folders and the profiling monitor folder of this job stay apart from the other jobs':",
-    "  bash $HOME/cf-avg/scripts/trillium/submit.sh --time=09:00:00 \\",
-    "      --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_ant_base_9m.json,RESULTS_DIR=$SCRATCH/results_ant_9m,TIME_LIMIT=8.5",
+    "  bash $HOME/cf-avg/scripts/trillium/submit.sh --time=12:00:00 \\",
+    "      --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_ant_base_9m.json,RESULTS_DIR=$SCRATCH/results_ant_9m,TIME_LIMIT=11.5",
     "The utilisation monitor is on by default (MONITOR=1): profiling CSVs land in $RESULTS_DIR/monitor_<jobid>;",
     "scripts/profiling/README.md has the resume and plotting commands."
   ],

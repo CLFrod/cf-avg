@@ -45,15 +45,15 @@ bash scripts/trillium/submit.sh --time=03:00:00 --export=ALL,RUN_ARGS="--N 15000
 **One env per node, 9M steps** (`configs/trillium_ant_base_9m.json`, `configs/trillium_humanoid_base_9m.json`):
 188 `base` runs of a single env on 188 random seeds, so each job is a homogeneous node (every core running the
 same env, no Hopper runs finishing first). At the per-run speeds of the mixed 18M jobs (Ant ~459 steps/s,
-Humanoid ~401 steps/s) a run takes ~5.5 h / ~6.3 h, so a 9 h walltime leaves room for a slower full node; the
+Humanoid ~401 steps/s) a run takes ~5.5 h / ~6.3 h, so a 12 h walltime leaves plenty of room for a slower full node; the
 runs checkpoint and stop at `TIME_LIMIT` hours if they are not done. One job per config, each with its own
 results folder so the run folders and `monitor_<jobid>` of the two jobs stay apart:
 
 ```bash
-bash scripts/trillium/submit.sh --time=09:00:00 \
-    --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_ant_base_9m.json,RESULTS_DIR=$SCRATCH/results_ant_9m,TIME_LIMIT=8.5
-bash scripts/trillium/submit.sh --time=09:00:00 \
-    --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_humanoid_base_9m.json,RESULTS_DIR=$SCRATCH/results_humanoid_9m,TIME_LIMIT=8.5
+bash scripts/trillium/submit.sh --time=12:00:00 \
+    --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_ant_base_9m.json,RESULTS_DIR=$SCRATCH/results_ant_9m,TIME_LIMIT=11.5
+bash scripts/trillium/submit.sh --time=12:00:00 \
+    --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_humanoid_base_9m.json,RESULTS_DIR=$SCRATCH/results_humanoid_9m,TIME_LIMIT=11.5
 ```
 
 If a job hits `TIME_LIMIT`, continue it with the usual resume job (same `RESULTS_DIR`, so the monitor folder of the
