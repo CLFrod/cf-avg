@@ -42,6 +42,31 @@ bash scripts/trillium/submit.sh                                           # the 
 bash scripts/trillium/submit.sh --time=03:00:00 --export=ALL,RUN_ARGS="--N 1500000"   # ~2 h version
 ```
 
+**One env per node, 9M steps** (`configs/trillium_ant_base_9m.json`, `configs/trillium_humanoid_base_9m.json`):
+188 `base` runs of a single env on 188 random seeds, so each job is a homogeneous node (every core running the
+same env, no Hopper runs finishing first). At the per-run speeds of the mixed 18M jobs (Ant ~459 steps/s,
+Humanoid ~401 steps/s) a run takes ~5.5 h / ~6.3 h, so a 9 h walltime leaves room for a slower full node; the
+runs checkpoint and stop at `TIME_LIMIT` hours if they are not done. One job per config, each with its own
+results folder so the run folders and `monitor_<jobid>` of the two jobs stay apart:
+
+```bash
+bash scripts/trillium/submit.sh --time=09:00:00 \
+    --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_ant_base_9m.json,RESULTS_DIR=$SCRATCH/results_ant_9m,TIME_LIMIT=8.5
+bash scripts/trillium/submit.sh --time=09:00:00 \
+    --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_humanoid_base_9m.json,RESULTS_DIR=$SCRATCH/results_humanoid_9m,TIME_LIMIT=8.5
+```
+
+If a job hits `TIME_LIMIT`, continue it with the usual resume job (same `RESULTS_DIR`, so the monitor folder of the
+continuation lands next to the first one):
+
+```bash
+bash scripts/trillium/submit.sh --time=04:00:00 --dependency=afterany:<jobid> \
+    --export=ALL,RESULTS_DIR=$SCRATCH/results_ant_9m,RESUME_FROM="$SCRATCH/results_ant_9m/base-*",TIME_LIMIT=3.5
+```
+
+Copy `$SCRATCH/results_ant_9m/monitor_<jobid>` to `results_trillium/profiling/ant_9m/` and the Humanoid one to
+`results_trillium/profiling/humanoid_9m/`; the plot command below then labels them `ant_9m` and `humanoid_9m`.
+
 Knobs (all `--export=ALL,...`): `MONITOR=0` off, `MONITOR_INTERVAL` (default 5 s), `MONITOR_PROC_INTERVAL`
 (default 30 s), `MONITOR_DIR` (default `$SCRATCH/results/monitor_<jobid>`).
 
@@ -125,7 +150,8 @@ are the only idle ones.
 ## Figures (`plot_profile.py`)
 
 ```bash
-python scripts/profiling/plot_profile.py results_trillium/profiling/dynamics_18m/monitor_<id>     results_trillium/profiling/limb_18m/monitor_<id> --out results_trillium/profiling/figures
+python scripts/profiling/plot_profile.py results_trillium/profiling/dynamics_18m/monitor_<id> results_trillium/profiling/limb_18m/monitor_<id> \
+    results_trillium/profiling/ant_9m/monitor_<id> results_trillium/profiling/humanoid_9m/monitor_<id> --out results_trillium/profiling/figures
 ```
 
 Labels default to the parent folder's name (`--labels` to override). Per job:
@@ -155,3 +181,6 @@ steps/s and min / max hours.
 - **Per-run slowdown from sharing**: `runs_binned.csv` steps/s in the full job vs the 3-run baseline job, per env.
   A small gap means memory bandwidth / L3 sharing is not a bottleneck at 188 runs.
 - **Tail**: `n_runs` and `cores_in_use` as runs finish (Hopper first, Humanoid last) — the only idle time in the job.
+- **Mixed vs homogeneous node**: the 9M single-env jobs (`ant_9m`, `humanoid_9m`) give per-env steps/s with every
+  neighbour running the same env, and a tail made only of seed-to-seed variation; compare their `summary.csv` rows
+  (core-hours used %, tail length, steps/s per env) against the mixed 18M jobs.

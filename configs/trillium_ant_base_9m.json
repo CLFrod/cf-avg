@@ -1,0 +1,58 @@
+{
+  "_comment": [
+    "Node-filling baseline on Ant-v4 alone: the plain `base` experiment (default physics, reward and termination)",
+    "for 9M steps on 188 random seeds = 188 runs, one per core on a 192-core node (4 cores reserved).",
+    "Companion of trillium_humanoid_base_9m.json (same seeds, same layout, Humanoid-v4); together they give a",
+    "homogeneous-node utilisation profile per env (see scripts/profiling/README.md). Profiling only: the seeds are not",
+    "matched to any other config. Hyperparameters are the paper's Ant-v4 settings, as in every other Trillium config; same gamma/beta1/",
+    "normalisation flags, videos every 3M steps and at the end, model snapshots every 1M steps.",
+    "Seeds: 188 distinct values drawn once (numpy default_rng(20261103).choice(100000, 188, replace=False)) and",
+    "written here so the job is reproducible.",
+    "At the ~459 steps/s measured for Ant-v4 on a full shared node (18M profiles), 9M is ~5.4 h per run;",
+    "submit with --time=09:00:00 and TIME_LIMIT=8.5 (a slow run checkpoints and exits before the walltime) and its own",
+    "RESULTS_DIR so the run folders and the profiling monitor folder of this job stay apart from the other jobs':",
+    "  bash $HOME/cf-avg/scripts/trillium/submit.sh --time=09:00:00 \\",
+    "      --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_ant_base_9m.json,RESULTS_DIR=$SCRATCH/results_ant_9m,TIME_LIMIT=8.5",
+    "The utilisation monitor is on by default (MONITOR=1): profiling CSVs land in $RESULTS_DIR/monitor_<jobid>;",
+    "scripts/profiling/README.md has the resume and plotting commands."
+  ],
+  "defaults": {
+    "N": 9000000,
+    "seeds": [
+      57563, 32314, 14660, 95919, 14280, 71712, 79455, 622, 24329, 77774, 90741, 58540, 44723, 29478, 80358, 39214,
+      51201, 57464, 40184, 24701, 84174, 13342, 40344, 56864, 82997, 77592, 59430, 61711, 19230, 86474, 39246, 57432,
+      94373, 77557, 65613, 1451, 90762, 41942, 55789, 6975, 94532, 9110, 66701, 73878, 20721, 1256, 29839, 44194,
+      45099, 34731, 97584, 73171, 55055, 80636, 84543, 50978, 40746, 75781, 66609, 57990, 43246, 33300, 5524, 58552,
+      97717, 14662, 30360, 33029, 26301, 48147, 75909, 73236, 15722, 84481, 47007, 90316, 49148, 19479, 47335, 32790,
+      27165, 17960, 32873, 84270, 96666, 67156, 10186, 92100, 7441, 9391, 49504, 84786, 54359, 10531, 57460, 86190,
+      65571, 17671, 23493, 96434, 11086, 87120, 44694, 44940, 53994, 23180, 82242, 56479, 65784, 21422, 70094, 55450,
+      45813, 88932, 93408, 42297, 15702, 49230, 25412, 74416, 7492, 41892, 45363, 24205, 96091, 26023, 32157, 37209,
+      15975, 43640, 733, 94517, 42305, 95354, 59258, 79746, 33019, 89892, 37792, 97802, 45890, 73448, 27291, 37390,
+      89967, 41971, 92901, 62620, 29259, 62725, 66129, 36639, 52218, 63600, 8727, 56585, 57064, 88461, 20297, 67271,
+      19044, 519, 44087, 54613, 51982, 65617, 74992, 27122, 36773, 70842, 78317, 52091, 19028, 11573, 1109, 349,
+      6933, 88054, 37919, 44808, 76467, 22865, 16629, 52338, 79955, 71607, 50787, 22758
+    ],
+    "gamma": 0.99,
+    "beta1": 0.0,
+    "normalize_obs": true,
+    "pnorm": true,
+    "scaled_td": true,
+    "n_eval": 2,
+    "video_every": 3000000,
+    "save_model": true,
+    "save_model_every": 1000000
+  },
+  "envs": {
+    "Ant-v4": {
+      "actor_lr": 0.0063,
+      "critic_lr": 0.0087,
+      "alpha_lr": 0.07
+    }
+  },
+  "experiments": [
+    {
+      "name": "base",
+      "_": "default physics, default reward/termination, Ant-v4 only"
+    }
+  ]
+}
