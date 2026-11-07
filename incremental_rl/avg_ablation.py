@@ -19,7 +19,13 @@ from incremental_rl.utils import (
     set_one_thread,
 )
 from incremental_rl.experiment_tracker import ExperimentTracker, record_video
-from incremental_rl.env_mods import make_env, Schedule, set_env_kwargs, apply as apply_env_mods, describe as describe_env
+from incremental_rl.env_mods import (
+    make_env,
+    Schedule,
+    set_env_kwargs,
+    apply as apply_env_mods,
+    describe as describe_env,
+)
 from incremental_rl import checkpoint as ckpt
 
 # Skip torch.distributions' per-call argument validation (shape/positive-definiteness checks on every step)
@@ -62,9 +68,7 @@ class Actor(nn.Module):
         log_std = self.log_std(phi)
         log_std = torch.clamp(log_std, self.LOG_STD_MIN, self.LOG_STD_MAX)
 
-        # Diagonal Gaussian. Equivalent to MultivariateNormal(mu, diag_embed(log_std.exp())) (same samples for the
-        # same RNG state, log_prob/entropy equal to fp32 precision) but ~3x cheaper: no Cholesky/triangular solve.
-        # N.B: exp(log_std) was passed as the *covariance* in the original, hence std = exp(0.5 * log_std).
+        # old diag gaussian code present, this is an easy speedup
         dist = Independent(Normal(mu, torch.exp(0.5 * log_std)), 1)
 
         action_pre = dist.rsample()
@@ -276,8 +280,8 @@ class AVG:
         return stats
 
     def save(self, model_dir, unique_str, env=None):
-        """ Model snapshot: networks, optimizers and (with env) the observation normaliser's statistics, which the
-        actor needs to be run on raw observations later """
+        """Model snapshot: networks, optimizers and (with env) the observation normaliser's statistics, which the
+        actor needs to be run on raw observations later"""
         model = {
             "actor": self.actor.state_dict(),
             "critic": self.Q.state_dict(),
@@ -292,7 +296,8 @@ def make_video_recorder(args, train_env, agent, schedule, expt):
     """record(step) writes <run_id>_video_<step>.mp4 (--n_eval episodes). It uses a separate env with the
     training normaliser's statistics copied in and frozen, and the physics mods currently in effect, and it
     restores the RNG states afterwards, so training (and resume bit-exactness) is unaffected. A render
-    failure (no OpenGL on a headless node) disables videos for the run instead of crashing it."""
+    failure (no OpenGL on a headless node) disables videos for the run instead of crashing it.
+    """
     state = {"env": None, "disabled": False}
 
     def record(step):
@@ -301,7 +306,13 @@ def make_video_recorder(args, train_env, agent, schedule, expt):
         rng = torch.get_rng_state(), np.random.get_state()
         try:
             if state["env"] is None:
-                e = make_env(args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480)
+                e = make_env(
+                    args.env,
+                    args.env_kwargs,
+                    render_mode="rgb_array",
+                    width=640,
+                    height=480,
+                )
                 e = gym.wrappers.FlattenObservation(e)
                 if args.normalize_obs:
                     e = NormalizeObservation(e)
@@ -322,7 +333,9 @@ def make_video_recorder(args, train_env, agent, schedule, expt):
             print(f"[video] step {step}: recording {args.n_eval} episode(s) -> {fname}")
             record_video(e, agent, num_episodes=args.n_eval, video_filename=fname)
         except Exception as ex:
-            print(f"[video] recording failed ({type(ex).__name__}: {ex}); videos disabled for this run")
+            print(
+                f"[video] recording failed ({type(ex).__name__}: {ex}); videos disabled for this run"
+            )
             state["disabled"] = True
         finally:
             torch.set_rng_state(rng[0])
@@ -349,22 +362,32 @@ def episode_row(episode, step, ep_len, ret, ep_duration, wall_time, stats, parti
 def main(args):
     tic = time.time()
 
-    if args.vlines is None:  # mark the physics switches on the learning curve unless told otherwise
+    if (
+        args.vlines is None
+    ):  # mark the physics switches on the learning curve unless told otherwise
         args.vlines = sorted(e["step"] for e in args.schedule)
 
-    # Resume: continue the run in args.resume from its checkpoint, keeping its run id (same metrics.csv etc.)
+    # resuming runs from checkpoint
     saved = ckpt.load(args.resume) if args.resume else None
     if saved is not None and saved["step"] >= args.N:
-        print(f"[resume] {args.resume} is already complete ({saved['step']} >= N={args.N}); nothing to do")
+        print(
+            f"[resume] {args.resume} is already complete ({saved['step']} >= N={args.N}); nothing to do"
+        )
         return saved["ep_steps"], saved["rets"]
-    expt = ExperimentTracker(args, run_id=saved["run_id"] if saved else None)  # writes args.json
+    expt = ExperimentTracker(
+        args, run_id=saved["run_id"] if saved else None
+    )  # writes args.json
     L = Logger(args.results_dir, prefix=f"{expt.run_id}_", use_tb=False)
 
-    # Env: reward/termination via constructor kwargs, physics via env_mods (now) and schedule (at given steps).
+    # modify env based on config file
     # See docs/env_modifications.md
-    env = make_env(args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480)
+    env = make_env(
+        args.env, args.env_kwargs, render_mode="rgb_array", width=640, height=480
+    )
     applied = apply_env_mods(env, args.env_mods)
-    schedule = Schedule(env, args.schedule, initial_mods=args.env_mods, initial_kwargs=args.env_kwargs)
+    schedule = Schedule(
+        env, args.schedule, initial_mods=args.env_mods, initial_kwargs=args.env_kwargs
+    )
     print(f"[env_mods] step 0: applied {applied} -> {describe_env(env)}")
     if schedule.entries:
         print(f"[env_mods] schedule: {schedule.entries}")
@@ -401,7 +424,11 @@ def main(args):
 
     # Videos (--n_eval episodes each) every --video_every steps, at every physics switch, and at the end
     record = make_video_recorder(args, env, agent, schedule, expt)
-    video_steps = set(range(args.video_every, args.N, args.video_every)) if args.video_every else set()
+    video_steps = (
+        set(range(args.video_every, args.N, args.video_every))
+        if args.video_every
+        else set()
+    )
     video_steps |= set(schedule.switch_steps)
 
     # Interaction
@@ -412,9 +439,13 @@ def main(args):
         ckpt.restore(saved, agent, env)
         t0, i_episode = saved["step"], saved["episode"]
         rets, ep_steps = list(saved["rets"]), list(saved["ep_steps"])
-        tic = time.time() - saved["wall_time"]  # wall_time column continues from the saved run
+        tic = (
+            time.time() - saved["wall_time"]
+        )  # wall_time column continues from the saved run
         expt.step_on_save = t0
-        print(f"[resume] continuing {expt.run_id} from step {t0} (episode {i_episode}, {saved['wall_time']/3600:.2f} h so far)")
+        print(
+            f"[resume] continuing {expt.run_id} from step {t0} (episode {i_episode}, {saved['wall_time']/3600:.2f} h so far)"
+        )
     proc_tic, last_ckpt, stopped_early = time.time(), t0, False
     terminated, truncated = False, False
     obs, _ = env.reset()
@@ -423,7 +454,9 @@ def main(args):
     )  # convert each observation once; it is reused as next step's obs
     ep_tic = time.time()
     try:
-        for t in schedule.steps(args.N, start=t0, at=video_steps, callback=record):  # == range(t0, N)
+        for t in schedule.steps(
+            args.N, start=t0, at=video_steps, callback=record
+        ):  # == range(t0, N)
             # N.B: Action is a torch.Tensor
             action, action_info = agent.compute_action(obs_t)
             sim_action = action.detach().cpu().view(-1).numpy()
@@ -440,7 +473,12 @@ def main(args):
 
             obs_t = next_obs_t
 
-            if args.save_model and args.save_model_every and t % args.save_model_every == 0 and t > 0:
+            if (
+                args.save_model
+                and args.save_model_every
+                and t % args.save_model_every == 0
+                and t > 0
+            ):
                 agent.save(
                     model_dir=args.results_dir,
                     unique_str=f"{expt.run_id}_model_{human_format_numbers(t)}",
@@ -472,16 +510,34 @@ def main(args):
 
                 # Resume checkpoint every args.checkpoint steps, and a clean stop at the time limit (episode
                 # boundaries only, so no per-step check and the saved state needs no mid-episode sim state)
-                out_of_time = args.time_limit and time.time() - proc_tic > args.time_limit * 3600
-                if not args.do_not_save and (t + 1 - last_ckpt >= args.checkpoint or out_of_time):
-                    ckpt.save(args.results_dir, step=t + 1, episode=i_episode, agent=agent, env=env, rets=rets,
-                              ep_steps=ep_steps, wall_time=time.time() - tic, run_id=expt.run_id, N=args.N)
+                out_of_time = (
+                    args.time_limit and time.time() - proc_tic > args.time_limit * 3600
+                )
+                if not args.do_not_save and (
+                    t + 1 - last_ckpt >= args.checkpoint or out_of_time
+                ):
+                    ckpt.save(
+                        args.results_dir,
+                        step=t + 1,
+                        episode=i_episode,
+                        agent=agent,
+                        env=env,
+                        rets=rets,
+                        ep_steps=ep_steps,
+                        wall_time=time.time() - tic,
+                        run_id=expt.run_id,
+                        N=args.N,
+                    )
                     last_ckpt = t + 1
                 if out_of_time:
                     stopped_early = True
-                    print(f"[time_limit] {args.time_limit} h reached at step {t + 1}; checkpoint saved. "
-                          f"Continue with --resume {args.results_dir}")
-                    record(t + 1)  # a video whenever training ceases, including a time-limit stop
+                    print(
+                        f"[time_limit] {args.time_limit} h reached at step {t + 1}; checkpoint saved. "
+                        f"Continue with --resume {args.results_dir}"
+                    )
+                    record(
+                        t + 1
+                    )  # a video whenever training ceases, including a time-limit stop
                     break
 
                 ep_tic = time.time()
@@ -522,12 +578,24 @@ def main(args):
     if not args.do_not_save and not stopped_early:
         # Final checkpoint: marks the run complete, and lets it be extended later with a larger --N (which then
         # starts a fresh episode at step N; the unfinished episode is already logged as partial)
-        ckpt.save(args.results_dir, step=t + 1, episode=i_episode, agent=agent, env=env, rets=rets,
-                  ep_steps=ep_steps, wall_time=time.time() - tic, run_id=expt.run_id, N=args.N,
-                  complete=t + 1 >= args.N)
+        ckpt.save(
+            args.results_dir,
+            step=t + 1,
+            episode=i_episode,
+            agent=agent,
+            env=env,
+            rets=rets,
+            ep_steps=ep_steps,
+            wall_time=time.time() - tic,
+            run_id=expt.run_id,
+            N=args.N,
+            complete=t + 1 >= args.N,
+        )
 
     if args.save_model:
-        agent.save(model_dir=args.results_dir, unique_str=f"{expt.run_id}_model", env=env)
+        agent.save(
+            model_dir=args.results_dir, unique_str=f"{expt.run_id}_model", env=env
+        )
 
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time() - tic))
     wandb.finish()
@@ -580,10 +648,18 @@ def get_parser(add_help=True):
     )
     parser.add_argument("--device", default="cpu", type=str)
     parser.add_argument("--do_not_save", action="store_true", default=False)
-    parser.add_argument("--save_model", action="store_true", default=False,
-                        help="Save <run_id>_model_<step>.pt every --save_model_every steps and <run_id>_model.pt at the end")
-    parser.add_argument("--save_model_every", default=1000000, type=int,
-                        help="Model snapshot interval in steps when --save_model (0 = only at the end)")
+    parser.add_argument(
+        "--save_model",
+        action="store_true",
+        default=False,
+        help="Save <run_id>_model_<step>.pt every --save_model_every steps and <run_id>_model.pt at the end",
+    )
+    parser.add_argument(
+        "--save_model_every",
+        default=1000000,
+        type=int,
+        help="Model snapshot interval in steps when --save_model (0 = only at the end)",
+    )
     parser.add_argument("--load_model", type=str, default="")
     parser.add_argument("--description", default="", type=str)
     parser.add_argument(
@@ -598,11 +674,16 @@ def get_parser(add_help=True):
     parser.add_argument("--pnorm", action="store_true", default=False)
     parser.add_argument("--scaled_td", action="store_true", default=False)
     parser.add_argument(
-        "--n_eval", default=0, type=int,
+        "--n_eval",
+        default=0,
+        type=int,
         help="Episodes per video. Videos are recorded every --video_every steps, at each physics switch, and at the end",
     )
     parser.add_argument(
-        "--video_every", default=0, type=int, help="Record a video every this many steps (0 = only at switches/end)"
+        "--video_every",
+        default=0,
+        type=int,
+        help="Record a video every this many steps (0 = only at switches/end)",
     )
     parser.add_argument(
         "--n_threads",

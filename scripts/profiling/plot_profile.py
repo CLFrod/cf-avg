@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
 # ------------------------------------------------------------------------------------------ palette (light mode)
+RESERVED_CORES = 4   # cores avg_multi.sh keeps free (RESERVE_CORES): launcher, OS, utilisation monitor
+
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 SEQ = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf",
        "#1c5cab", "#184f95", "#104281", "#0d366b"]
@@ -298,8 +300,10 @@ def fig_core_average(job, out):
     ax.plot(hb, all_mean, color=SERIES[0], label=f"all {n_all} cores on the node")
     ceiling = 100 * n_work / n_all
     hairline(ax, ceiling, "", below=True)
-    ax.annotate(f"{np.nanmedian(all_mean[mid]):.1f} %  (ceiling {ceiling:.1f} %: {n_work} of {n_all} cores have a run, "
-                f"{n_all - n_work} idle by design)", (hb[mid][len(hb[mid]) // 2], np.nanmedian(all_mean[mid])),
+    idle = n_all - n_work   # 4 are reserved for the launcher/OS/monitor (avg_multi.sh RESERVE_CORES); any more had no run
+    cores = f"{n_work} used, {min(idle, RESERVED_CORES)} reserved" + (f", {idle - RESERVED_CORES} unused" if idle > RESERVED_CORES else "") + " cores"
+    ax.annotate(f"{np.nanmedian(all_mean[mid]):.1f} %  (ceiling {ceiling:.1f} %: {cores})",
+                (hb[mid][len(hb[mid]) // 2], np.nanmedian(all_mean[mid])),
                 xytext=(0, -14), textcoords="offset points", ha="center", fontsize=8, color=INK2)
     ax.annotate(f"{np.nanmedian(work_mean[mid]):.1f} %", (hb[mid][len(hb[mid]) // 2], np.nanmedian(work_mean[mid])),
                 xytext=(0, 6), textcoords="offset points", ha="center", fontsize=8, color=INK2)

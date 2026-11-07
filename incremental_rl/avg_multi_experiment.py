@@ -94,11 +94,18 @@ def add_launcher_args(parser):
         help="Experiment name (command-line mode): run folder prefix and each run's --description",
     )
     group.add_argument(
-        "--resume_from", default=None, type=str, nargs="+", metavar="GLOB",
+        "--resume_from",
+        default=None,
+        type=str,
+        nargs="+",
+        metavar="GLOB",
         help="Continue the runs in these folders from their checkpoints (e.g. 'results/gravity-*-20261024_*')",
     )
     group.add_argument(
-        "--shard", default=None, type=str, metavar="K/N",
+        "--shard",
+        default=None,
+        type=str,
+        metavar="K/N",
         help="Run only the K-th of N interleaved slices of the job list (e.g. 1/2 and 2/2 on two nodes)",
     )
     group.add_argument(
@@ -147,9 +154,13 @@ def parse_args():
             k, n = (int(x) for x in args.shard.split("/"))
             assert 1 <= k <= n
         except (ValueError, AssertionError):
-            full_parser.error(f"--shard must be K/N with 1 <= K <= N (got {args.shard!r})")
+            full_parser.error(
+                f"--shard must be K/N with 1 <= K <= N (got {args.shard!r})"
+            )
         total = len(args.jobs)
-        args.jobs = args.jobs[k - 1::n]   # jobs are interleaved over experiments, so every shard gets a mix
+        args.jobs = args.jobs[
+            k - 1 :: n
+        ]  # jobs are interleaved over experiments, so every shard gets a mix
         print(f"shard {k}/{n}: {len(args.jobs)} of {total} runs")
     n_threads = max(j["hyp"]["n_threads"] for j in args.jobs)
     if n_threads > args.cores_per_run:
@@ -202,9 +213,17 @@ def load_experiments(path):
         per_env = strip(exp.pop("per_env", None))
         targets = [exp["env"]] if exp.get("env") else list(envs)
         if not targets:
-            raise SystemExit(f"{path}: experiment #{i + 1} ({exp.get('name')!r}) has no `env` and there is no `envs` block")
+            raise SystemExit(
+                f"{path}: experiment #{i + 1} ({exp.get('name')!r}) has no `env` and there is no `envs` block"
+            )
         for env_id in targets:
-            e = {**defaults, **envs.get(env_id, {}), **exp, **strip(per_env.get(env_id)), "env": env_id}
+            e = {
+                **defaults,
+                **envs.get(env_id, {}),
+                **exp,
+                **strip(per_env.get(env_id)),
+                "env": env_id,
+            }
             name = e.get("name") or env_id
             if (name, env_id) in names:
                 raise SystemExit(f"{path}: duplicate experiment {name!r} on {env_id}")
@@ -214,7 +233,11 @@ def load_experiments(path):
     return merged
 
 
-JSON_KEYS = ("env_kwargs", "env_mods", "schedule")   # structured values: passed to avg_ablation as JSON strings
+JSON_KEYS = (
+    "env_kwargs",
+    "env_mods",
+    "schedule",
+)  # structured values: passed to avg_ablation as JSON strings
 
 
 def hyp_to_argv(hyp):
@@ -273,9 +296,17 @@ def build_jobs(experiments, args, cli_overrides, full_parser):
         resolved = vars(ns)
         resolved.pop("seed")
         try:  # build the env once and apply every mod, so a bad kwarg/body/geom name fails here, not in 30 runs
-            env_mods.validate(resolved["env"], resolved["env_kwargs"], resolved["env_mods"], resolved["schedule"])
+            env_mods.validate(
+                resolved["env"],
+                resolved["env_kwargs"],
+                resolved["env_mods"],
+                resolved["schedule"],
+            )
         except Exception as e:
-            full_parser.exit(2, f"error: experiment {name!r} ({resolved['env']}): {type(e).__name__}: {e}\n")
+            full_parser.exit(
+                2,
+                f"error: experiment {name!r} ({resolved['env']}): {type(e).__name__}: {e}\n",
+            )
         label = f"{name}/{resolved['env']}"  # what the progress lines and summary call this experiment
         jobs_per_exp.append(
             [
@@ -304,7 +335,9 @@ def resume_jobs(patterns, cli_overrides, full_parser):
             with open(os.path.join(d, "multi_experiment.json")) as f:
                 info = json.load(f)
         except FileNotFoundError:
-            skipped.append((d, "no multi_experiment.json (not launched by this script)"))
+            skipped.append(
+                (d, "no multi_experiment.json (not launched by this script)")
+            )
             continue
         meta = checkpoint.read_meta(d)
         if meta is None:
@@ -320,8 +353,17 @@ def resume_jobs(patterns, cli_overrides, full_parser):
         if meta["step"] >= ns.N:
             skipped.append((d, f"complete ({meta['step']} steps)"))
             continue
-        jobs.append({"name": info["experiment"], "label": f"{info['experiment']}/{ns.env}", "seed": info["seed"],
-                     "argv": argv, "hyp": vars(ns), "run_dir": d, "resume_step": meta["step"]})
+        jobs.append(
+            {
+                "name": info["experiment"],
+                "label": f"{info['experiment']}/{ns.env}",
+                "seed": info["seed"],
+                "argv": argv,
+                "hyp": vars(ns),
+                "run_dir": d,
+                "resume_step": meta["step"],
+            }
+        )
     for d, why in skipped:
         print(f"[skip] {d}: {why}")
     if not jobs:
@@ -335,7 +377,7 @@ def pinning_supported():
 
 def physical_cores():
     """CPUs this process may run on, keeping one logical CPU per physical core (drops SMT siblings)"""
-    if not hasattr(os, "sched_setaffinity"):  # Windows/macOS: no pinning, just count
+    if not pinning_supported():  # Windows/macOS: no pinning, just count
         return list(range(os.cpu_count()))
     cores, seen = [], set()
     for cpu in sorted(os.sched_getaffinity(0)):
@@ -376,7 +418,9 @@ def launch(job, slot):
         if slot and pinning_supported()
         else None
     )
-    log_f = open(os.path.join(job["run_dir"], "run.log"), "a" if "resume_step" in job else "w")
+    log_f = open(
+        os.path.join(job["run_dir"], "run.log"), "a" if "resume_step" in job else "w"
+    )
     proc = subprocess.Popen(
         cmd, stdout=log_f, stderr=subprocess.STDOUT, env=env, preexec_fn=pin
     )
