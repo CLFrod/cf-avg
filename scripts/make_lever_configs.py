@@ -1,9 +1,9 @@
 """Writes configs/levers_<env>.json: batch 1 of the on-shift lever study, one config per environment.
 
-    python scripts/make_lever_configs.py [--stats_root '$SCRATCH/results']
+    python scripts/make_lever_configs.py [--stats_root '$SCRATCH']
 
 Per shift: a legacy-G split, a fix-only split, a from-scratch run, 13 single levers and 2 stacks (18 conditions),
-each on 5 seeds. `stats_root` is where the warm-start lever (L06) finds the from-scratch 24M runs on the cluster.
+each on 5 seeds. `stats_root` holds the results folders the warm-start lever (L06) reads on the cluster.
 """
 import argparse, json, os
 
@@ -13,13 +13,14 @@ LR = {
     "Ant-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
     "Humanoid-v4": {"actor_lr": 0.0063, "critic_lr": 0.0087, "alpha_lr": 0.07},
 }
-# env -> (N, switch step), and the shifts to test: name -> (mods, from-scratch run folder prefix for the warm start)
+# env -> (N, switch step), and the shifts to test: name -> (mods, warm-start source run as "<results folder>/<name>")
 RUN = {"Hopper-v4": (6_000_000, 3_000_000), "Ant-v4": (12_000_000, 6_000_000), "Humanoid-v4": (12_000_000, 6_000_000)}
 ANT_LIMB = {"mass": {"front_left_leg": 0.1175, "aux_1": 0.1175, "4": 0.2028}}
+R24, R18 = "results_24M_10_26_2026", "results_limb_18m"
 SHIFTS = {
-    "Hopper-v4": {"gear2x": ({"gear_scale": 2.0}, "gear2x"), "heavy": ({"mass_scale": 2.0}, "heavy")},
-    "Ant-v4": {"gear2x": ({"gear_scale": 2.0}, "gear2x"), "limb_heavy": (ANT_LIMB, "base_to_limb_heavy")},
-    "Humanoid-v4": {"gear2x": ({"gear_scale": 2.0}, "gear2x"), "heavy": ({"mass_scale": 2.0}, "heavy")},
+    "Hopper-v4": {"gear2x": ({"gear_scale": 2.0}, f"{R24}/gear2x"), "heavy": ({"mass_scale": 2.0}, f"{R24}/heavy")},
+    "Ant-v4": {"gear2x": ({"gear_scale": 2.0}, f"{R24}/gear2x"), "limb_heavy": (ANT_LIMB, f"{R18}/base_to_limb_heavy")},
+    "Humanoid-v4": {"gear2x": ({"gear_scale": 2.0}, f"{R24}/gear2x"), "heavy": ({"mass_scale": 2.0}, f"{R24}/heavy")},
 }
 
 SHRINK_OBS = {"action": "shrink_obs_norm", "count": 1000}
@@ -106,7 +107,7 @@ def config(env, stats_root, smoke=False):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--stats_root", default="$SCRATCH/results", help="Folder holding the from-scratch 24M runs")
+    p.add_argument("--stats_root", default="$SCRATCH", help=f"Folder holding {R24} and {R18} (the warm-start sources)")
     p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "configs"))
     args = p.parse_args()
     todo = [(f"levers_{env.split('-')[0].lower()}", env, False) for env in RUN] + [("levers_smoke", "Hopper-v4", True)]

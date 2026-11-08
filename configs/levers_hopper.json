@@ -158,8 +158,8 @@
    "on_shift": [
     {
      "action": "load_stats",
-     "path": "$SCRATCH/results/gear2x-Hopper-v4-18606-*/*_model_3M.pt",
-     "scaler_path": "$SCRATCH/results/gear2x-Hopper-v4-18606-*/checkpoint.pt"
+     "path": "$SCRATCH/results_24M_10_26_2026/gear2x-Hopper-v4-18606-*/*_model_3M.pt",
+     "scaler_path": "$SCRATCH/results_24M_10_26_2026/gear2x-Hopper-v4-18606-*/checkpoint.pt"
     }
    ]
   },
@@ -483,8 +483,8 @@
    "on_shift": [
     {
      "action": "load_stats",
-     "path": "$SCRATCH/results/heavy-Hopper-v4-18606-*/*_model_3M.pt",
-     "scaler_path": "$SCRATCH/results/heavy-Hopper-v4-18606-*/checkpoint.pt"
+     "path": "$SCRATCH/results_24M_10_26_2026/heavy-Hopper-v4-18606-*/*_model_3M.pt",
+     "scaler_path": "$SCRATCH/results_24M_10_26_2026/heavy-Hopper-v4-18606-*/checkpoint.pt"
     }
    ]
   },
