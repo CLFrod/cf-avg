@@ -50,10 +50,11 @@ def obs_rms_state(env):
     return {"mean": norm.obs_rms.mean.copy(), "var": norm.obs_rms.var.copy(), "count": norm.obs_rms.count}
 
 
-def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_id, N, complete=False):
+def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_id, N, complete=False, extra=None):
     scaler = agent.td_error_scaler
     state = {
         "step": step, "episode": episode, "run_id": run_id, "N": N, "wall_time": wall_time,
+        "extra": extra or {},
         "agent": {
             "actor": agent.actor.state_dict(), "critic": agent.Q.state_dict(),
             "popt": agent.popt.state_dict(), "qopt": agent.qopt.state_dict(),

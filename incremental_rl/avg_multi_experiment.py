@@ -214,7 +214,7 @@ def load_experiments(path):
     return merged
 
 
-JSON_KEYS = ("env_kwargs", "env_mods", "schedule")   # structured values: passed to avg_ablation as JSON strings
+JSON_KEYS = ("env_kwargs", "env_mods", "schedule", "on_shift")   # structured values: passed to avg_ablation as JSON strings
 
 
 def hyp_to_argv(hyp):

@@ -41,6 +41,14 @@ class RunningStats(object):
             self.m += (x - self.m) / self.n
             self.s += (x - prev_m) * (x - self.m)
             
+    def shrink(self, n):
+        """Keep the mean and variance but weight them as n samples (n <= 0 clears)"""
+        if n <= 0:
+            self.n = 0.
+        elif self.n > n:
+            self.s = self.variance * n
+            self.n = float(n)
+
     def __add__(self, other):
         if isinstance(other, RunningStats):
             sum_ns = self.n + other.n
@@ -84,18 +92,32 @@ class TDErrorScaler:
 
     Usage: Push the statistics online _before_ a learning update. Scale TD error by sigma. 
     """
-    def __init__(self):
+    def __init__(self, cap_steps=None, cap_episodes=None):
         self.gamma_rms = RunningStats()
         self.return_sq_rms = RunningStats()
         self.reward_rms = RunningStats()
         self.return_rms = RunningStats()
+        self.cap_steps, self.cap_episodes = cap_steps, cap_episodes  # moving-average windows (None = no cap)
 
     def update(self, reward, gamma, G):
         if G is not None:
             self.return_sq_rms.update(G**2)
             self.return_rms.update(G)
+            if self.cap_episodes:
+                self.shrink(None, self.cap_episodes)
         self.reward_rms.update(reward)
         self.gamma_rms.update(gamma)
+        if self.cap_steps:
+            self.shrink(self.cap_steps, None)
+
+    def shrink(self, steps, episodes):
+        """Reweight the per-step stats as `steps` samples and the per-episode stats as `episodes` (None = leave)"""
+        if steps is not None:
+            self.reward_rms.shrink(steps)
+            self.gamma_rms.shrink(steps)
+        if episodes is not None:
+            self.return_sq_rms.shrink(episodes)
+            self.return_rms.shrink(episodes)
 
     @property
     def sigma(self):

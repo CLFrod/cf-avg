@@ -1,0 +1,360 @@
+{
+ "_comment": [
+  "Smoke test of configs/levers_<env>.json: every condition once on Hopper gear2x, 40k steps, switch at 20k.",
+  "Debug partition: sbatch -p debug --time=00:30:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/levers_smoke.json $HOME/cf-avg/scripts/trillium/avg_multi.sh"
+ ],
+ "defaults": {
+  "N": 40000,
+  "seeds": [
+   18606
+  ],
+  "gamma": 0.99,
+  "beta1": 0.0,
+  "normalize_obs": true,
+  "pnorm": true,
+  "scaled_td": true,
+  "n_eval": 1,
+  "video_every": 20000,
+  "save_model": true,
+  "save_model_every": 1000000,
+  "dense_window": [
+   5000,
+   15000
+  ],
+  "checkpoint": 10000
+ },
+ "envs": {
+  "Hopper-v4": {
+   "actor_lr": 1.1e-05,
+   "critic_lr": 7.7e-05,
+   "alpha_lr": 0.3
+  }
+ },
+ "experiments": [
+  {
+   "name": "legacy-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "legacy_g_reset": true
+  },
+  {
+   "name": "fix-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "scratch-gear2x",
+   "env_mods": {
+    "gear_scale": 2.0
+   }
+  },
+  {
+   "name": "L02_shrink_obs-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 1000
+    }
+   ]
+  },
+  {
+   "name": "L02_hard_obs-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 0
+    }
+   ]
+  },
+  {
+   "name": "L03_cap_obs-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "obs_norm_cap": 100000
+  },
+  {
+   "name": "L04_shrink_scaler-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_td_scaler",
+     "steps": 1000,
+     "episodes": 10
+    }
+   ]
+  },
+  {
+   "name": "L05_cap_scaler-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "td_scaler_cap": [
+    100000,
+    100
+   ]
+  },
+  {
+   "name": "L06_warm_start-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "load_stats",
+     "path": "$SCRATCH/results/gear2x-Hopper-v4-18606-*/*_model_3M.pt",
+     "scaler_path": "$SCRATCH/results/gear2x-Hopper-v4-18606-*/checkpoint.pt"
+    }
+   ]
+  },
+  {
+   "name": "L07_reset_adam-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "reset_adam",
+     "net": "both"
+    }
+   ]
+  },
+  {
+   "name": "L08_critic_x3-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "lr_boost",
+     "net": "critic",
+     "k": 3,
+     "steps": 200000
+    }
+   ]
+  },
+  {
+   "name": "L08_critic_x10-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "lr_boost",
+     "net": "critic",
+     "k": 10,
+     "steps": 200000
+    }
+   ]
+  },
+  {
+   "name": "L09_actor_freeze-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "lr_boost",
+     "net": "actor",
+     "k": 0,
+     "steps": 50000,
+     "mode": "hold"
+    }
+   ]
+  },
+  {
+   "name": "L10_actor_delayed-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "lr_boost",
+     "net": "actor",
+     "k": 5,
+     "steps": 200000,
+     "delay": 50000
+    }
+   ]
+  },
+  {
+   "name": "L11_adaptive-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "adaptive_lr": [
+    1000,
+    100000,
+    10
+   ]
+  },
+  {
+   "name": "L12_beta2-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "set_beta2",
+     "beta2": 0.99,
+     "steps": 200000
+    }
+   ]
+  },
+  {
+   "name": "S01_stats_stack-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 1000
+    },
+    {
+     "action": "shrink_td_scaler",
+     "steps": 1000,
+     "episodes": 10
+    },
+    {
+     "action": "reset_adam",
+     "net": "both"
+    }
+   ]
+  },
+  {
+   "name": "S02_sink-gear2x",
+   "schedule": [
+    {
+     "step": 20000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 1000
+    },
+    {
+     "action": "shrink_td_scaler",
+     "steps": 1000,
+     "episodes": 10
+    },
+    {
+     "action": "reset_adam",
+     "net": "both"
+    },
+    {
+     "action": "lr_boost",
+     "net": "critic",
+     "k": 10,
+     "steps": 200000
+    },
+    {
+     "action": "lr_boost",
+     "net": "actor",
+     "k": 0,
+     "steps": 50000,
+     "mode": "hold"
+    },
+    {
+     "action": "set_beta2",
+     "beta2": 0.99,
+     "steps": 200000
+    }
+   ]
+  }
+ ]
+}

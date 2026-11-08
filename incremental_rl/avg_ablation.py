@@ -1,6 +1,6 @@
 import torch
 import argparse, traceback
-import json, time, wandb
+import csv, json, os, time, wandb
 
 import numpy as np
 import torch.nn as nn
@@ -25,6 +25,7 @@ from incremental_rl.env_mods import (
     describe as describe_env,
 )
 from incremental_rl import checkpoint as ckpt
+from incremental_rl.levers import Levers, CappedNormalizeObservation
 
 # Skip torch.distributions' per-call argument validation
 torch.distributions.Distribution.set_default_validate_args(False)
@@ -121,6 +122,79 @@ def _total_norm(tensors):
     return torch.sqrt(sum(torch.norm(t) ** 2 for t in tensors)).item()
 
 
+def _update_ratio(before, params):
+    """||params - before|| / ||before||"""
+    params = list(params)
+    moved = sum(torch.norm(p.detach() - b) ** 2 for p, b in zip(params, before))
+    return (torch.sqrt(moved) / torch.sqrt(sum(torch.norm(b) ** 2 for b in before))).item()
+
+
+class ObsNormDrift:
+    """Per-episode change of the NormalizeObservation running mean/var"""
+
+    KEYS = ("obs_mean_drift", "obs_var_drift", "obs_count")
+
+    def __init__(self, env):
+        self.norm = ckpt.find_wrapper(env, NormalizeObservation)
+        self.prev = self.state()
+
+    def state(self):
+        if self.norm is None:
+            return None
+        return self.norm.obs_rms.mean.copy(), self.norm.obs_rms.var.copy()
+
+    def load(self, state):
+        if state is not None:
+            self.prev = tuple(np.array(x) for x in state)
+
+    def pop(self):
+        if self.norm is None:
+            return dict.fromkeys(self.KEYS, float("nan"))
+        now = self.state()
+        out = {
+            "obs_mean_drift": float(np.linalg.norm(now[0] - self.prev[0])),
+            "obs_var_drift": float(np.linalg.norm(now[1] - self.prev[1])),
+            "obs_count": float(self.norm.obs_rms.count),
+        }
+        self.prev = now
+        return out
+
+
+class DenseLog:
+    """Per-step rows inside --dense_window around each physics switch, in <run_id>_dense.csv"""
+
+    def __init__(self, args, expt, windows):
+        self.windows = windows
+        self.path = f"{args.results_dir}/{expt.run_id}_dense.csv"
+        self.enabled = bool(windows) and not args.do_not_save
+        self.file = self.writer = None
+
+    def active(self, t):
+        return self.enabled and any(lo <= t < hi for lo, hi in self.windows)
+
+    def write(self, t, episode, ep_step, reward, terminated, truncated, stats):
+        row = {
+            "step": t + 1,
+            "episode": episode,
+            "ep_step": ep_step,
+            "reward": reward,
+            "terminated": int(terminated),
+            "truncated": int(truncated),
+            **stats,
+        }
+        if self.writer is None:
+            append = os.path.exists(self.path)
+            self.file = open(self.path, "a" if append else "w", newline="")
+            self.writer = csv.DictWriter(self.file, fieldnames=list(row))
+            if not append:
+                self.writer.writeheader()
+        self.writer.writerow(row)
+
+    def flush(self):
+        if self.file:
+            self.file.flush()
+
+
 class AVG:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -161,11 +235,13 @@ class AVG:
         self.gamma = cfg.gamma
         self.device = cfg.device
 
-        self.td_error_scaler = TDErrorScaler()
+        self.td_error_scaler = TDErrorScaler(*(cfg.td_scaler_cap or (None, None)))
         self.G = 0
+        self.last_td_abs = 0.0
 
-        # Per-episode accumulators for logging (see pop_episode_stats)
+        # Per-episode accumulators for logging (see pop_episode_stats); dense = sample every step
         self.stats_every = cfg.stats_every
+        self.dense = False
         self._reset_episode_stats()
 
     def to_tensor(self, obs):
@@ -206,54 +282,104 @@ class AVG:
             target_V = q2 - self.alpha * next_lprob
 
         delta = reward + (1 - done) * self.gamma * target_V - q
+        delta_raw = delta.item()
+        self.last_td_abs = abs(delta_raw)
+        sigma = float(self.td_error_scaler.sigma)
         if self.cfg.scaled_td:
-            delta /= self.td_error_scaler.sigma
+            delta /= sigma
         qloss = delta**2
 
-        # Policy loss
-        ploss = self.alpha * lprob - self.Q(
-            obs, action
-        )  # N.B: USE reparametrized action
+        # Policy loss, with the reparametrized action
+        q_pi = self.Q(obs, action)
+        ploss = self.alpha * lprob - q_pi
 
         self.steps += 1
-        sample_norms = self.steps % self.stats_every == 0
+        sample = self.steps % self.stats_every == 0 or self.dense
+        if sample:
+            action.retain_grad()  # d(ploss)/d(action) = -dQ/da
+            actor_before = [p.detach().clone() for p in self.actor.parameters()]
+            critic_before = [p.detach().clone() for p in self.Q.parameters()]
 
         self.popt.zero_grad()
         ploss.backward()
-        if sample_norms:
-            self._acc["actor_grad_norm"] += _total_norm(
-                p.grad for p in self.actor.parameters()
-            )
         self.popt.step()
 
         self.qopt.zero_grad()
         qloss.backward()
-        if sample_norms:
-            self._acc["critic_grad_norm"] += _total_norm(
-                p.grad for p in self.Q.parameters()
-            )
-            self._acc_norm_n += 1
         self.qopt.step()
 
-        ### Accumulate cheap per-step stats; averaged per episode by pop_episode_stats()
         acc = self._acc
         acc["actor_loss"] += ploss.item()
+        acc["actor_loss_ent"] += self.alpha * lprob.item()
+        acc["actor_loss_q"] += q_pi.item()
         acc["critic_loss"] += qloss.item()
         acc["td_error"] += delta.abs().item()
+        acc["td_signed"] += delta_raw
+        acc["td_abs_raw"] += abs(delta_raw)
         acc["entropy"] += dist.entropy().item()
         acc["mod_action"] += action.abs().mean().item()
-        acc["td_sigma"] += float(self.td_error_scaler.sigma)
+        acc["td_sigma"] += sigma
         self._acc_n += 1
+        if not sample:
+            return None
+
+        s = {
+            "actor_grad_norm": _total_norm(p.grad for p in self.actor.parameters()),
+            "critic_grad_norm": _total_norm(p.grad for p in self.Q.parameters()),
+            "dq_da_norm": action.grad.norm().item(),
+            "actor_update_ratio": _update_ratio(actor_before, self.actor.parameters()),
+            "critic_update_ratio": _update_ratio(critic_before, self.Q.parameters()),
+        }
+        for name, layer in self._layers().items():
+            s[f"{name}_grad"] = _total_norm(p.grad for p in layer.parameters())
+        for k, v in s.items():
+            acc[k] += v
+        self._acc_norm_n += 1
+        if not self.dense:
+            return None
+        s.update(td_signed=delta_raw, td_sigma=sigma, entropy=dist.entropy().item())
+        return s
 
     STAT_KEYS = [
         "actor_loss",
+        "actor_loss_ent",
+        "actor_loss_q",
         "critic_loss",
         "td_error",
+        "td_signed",
+        "td_abs_raw",
         "entropy",
         "mod_action",
         "td_sigma",
     ]
-    NORM_KEYS = ["actor_grad_norm", "critic_grad_norm"]
+    LAYER_NAMES = [
+        "actor_l1",
+        "actor_l2",
+        "actor_mu",
+        "actor_logstd",
+        "critic_l1",
+        "critic_l2",
+        "critic_out",
+    ]
+    NORM_KEYS = [
+        "actor_grad_norm",
+        "critic_grad_norm",
+        "dq_da_norm",
+        "actor_update_ratio",
+        "critic_update_ratio",
+    ] + [f"{n}_grad" for n in LAYER_NAMES]
+
+    def _layers(self):
+        mods = [
+            self.actor.phi[0],
+            self.actor.phi[2],
+            self.actor.mu,
+            self.actor.log_std,
+            self.Q.phi[0],
+            self.Q.phi[2],
+            self.Q.q,
+        ]
+        return dict(zip(self.LAYER_NAMES, mods))
 
     def _reset_episode_stats(self):
         # Fixed key set so every logged episode has the same columns
@@ -261,7 +387,7 @@ class AVG:
         self._acc_n, self._acc_norm_n = 0, 0
 
     def pop_episode_stats(self):
-        """Per-episode means of the accumulated stats, plus current weight norms"""
+        """Per-episode means of the accumulated stats, plus current weight norms and scaler stats"""
         n = max(1, self._acc_n)
         stats = {k: self._acc[k] / n for k in self.STAT_KEYS}
         for k in self.NORM_KEYS:
@@ -272,6 +398,13 @@ class AVG:
             p.data for p in self.actor.parameters()
         )
         stats["critic_weight_norm"] = _total_norm(p.data for p in self.Q.parameters())
+        for name, layer in self._layers().items():
+            stats[f"{name}_w"] = _total_norm(p.data for p in layer.parameters())
+        sc = self.td_error_scaler
+        stats["scaler_reward_var"] = float(sc.reward_rms.variance)
+        stats["scaler_gamma_var"] = float(sc.gamma_rms.variance)
+        stats["scaler_G2_mean"] = float(sc.return_sq_rms.mean)
+        stats["scaler_G_count"] = float(sc.return_sq_rms.n)
         stats["num_updates"] = self.steps
         self._reset_episode_stats()
         return stats
@@ -382,7 +515,7 @@ def main(args):
 
     env = gym.wrappers.FlattenObservation(env)
     if args.normalize_obs:
-        env = NormalizeObservation(env)
+        env = CappedNormalizeObservation(env, args.obs_norm_cap) if args.obs_norm_cap else NormalizeObservation(env)
     env = ClipAction(env)
 
     #### Reproducibility
@@ -399,6 +532,7 @@ def main(args):
     args.action_dim = env.action_space.shape[0]
     # args.action_shape = env.action_space.shape
     agent = AVG(args)
+    levers = Levers(agent, env, args)
 
     # Weights & Biases; start a new wandb run to track this script
     wandb.init(
@@ -418,6 +552,21 @@ def main(args):
         else set()
     )
     video_steps |= set(schedule.switch_steps)
+    switch_steps = set(schedule.switch_steps)
+
+    def on_event(s):
+        record(s)
+        if s in switch_steps:
+            levers.on_shift(s)
+
+    # Extra instrumentation: normaliser drift per episode, per-step rows around each switch
+    drift = ObsNormDrift(env)
+    windows = (
+        [(s - args.dense_window[0], s + args.dense_window[1]) for s in schedule.switch_steps]
+        if args.dense_window
+        else []
+    )
+    dense = DenseLog(args, expt, windows)
 
     # Interaction
     rets, ep_steps = [], []
@@ -425,6 +574,8 @@ def main(args):
     t0 = 0
     if saved is not None:
         ckpt.restore(saved, agent, env)
+        drift.load(saved.get("extra", {}).get("obs_drift"))
+        levers.load(saved.get("extra", {}).get("levers"))
         t0, i_episode = saved["step"], saved["episode"]
         rets, ep_steps = list(saved["rets"]), list(saved["ep_steps"])
         tic = time.time() - saved["wall_time"]
@@ -438,7 +589,7 @@ def main(args):
     obs_t = agent.to_tensor(obs)
     ep_tic = time.time()
     try:
-        for t in schedule.steps(args.N, start=t0, at=video_steps, callback=record):
+        for t in schedule.steps(args.N, start=t0, at=video_steps, callback=on_event):
             action, action_info = agent.compute_action(obs_t)
             sim_action = action.detach().cpu().view(-1).numpy()
 
@@ -446,7 +597,8 @@ def main(args):
             next_obs, reward, terminated, truncated, _ = env.step(sim_action)
             next_obs_t = agent.to_tensor(next_obs)
 
-            agent.update(
+            agent.dense = dense.active(t)
+            step_stats = agent.update(
                 obs_t,
                 action,
                 next_obs_t,
@@ -459,6 +611,9 @@ def main(args):
             # Log
             ret += reward
             step += 1
+            if step_stats:
+                dense.write(t, i_episode + 1, step, reward, terminated, truncated, step_stats)
+            levers.step(t)
 
             obs_t = next_obs_t
 
@@ -486,8 +641,9 @@ def main(args):
                     ret,
                     time.time() - ep_tic,
                     time.time() - tic,
-                    agent.pop_episode_stats(),
+                    {**agent.pop_episode_stats(), **drift.pop(), **levers.pop_stats()},
                 )
+                dense.flush()
                 if args.debug:
                     for k, v in row.items():
                         L.log(f"train/{k}", v, t)
@@ -515,6 +671,7 @@ def main(args):
                         wall_time=time.time() - tic,
                         run_id=expt.run_id,
                         N=args.N,
+                        extra={"obs_drift": drift.state(), "levers": levers.state()},
                     )
                     last_ckpt = t + 1
                 if out_of_time:
@@ -554,12 +711,13 @@ def main(args):
                 ret,
                 time.time() - ep_tic,
                 time.time() - tic,
-                agent.pop_episode_stats(),
+                {**agent.pop_episode_stats(), **drift.pop(), **levers.pop_stats()},
                 partial=1,
             )
         )
 
     # Save returns and learning curve before exiting run
+    dense.flush()
     expt.finish(rets, ep_steps)
     if not args.do_not_save and not stopped_early:
         # Final checkpoint; marks the run complete and allows extending it with a larger --N
@@ -575,6 +733,7 @@ def main(args):
             run_id=expt.run_id,
             N=args.N,
             complete=t + 1 >= args.N,
+            extra={"obs_drift": drift.state(), "levers": levers.state()},
         )
 
     if args.save_model:
@@ -664,6 +823,32 @@ def get_parser(add_help=True):
         default=False,
         help="Reset the scaler's return accumulator G only on termination, as in the original code (default: also on truncation)",
     )
+    # Levers (see incremental_rl/levers.py)
+    parser.add_argument(
+        "--on_shift",
+        default=[],
+        type=json.loads,
+        help='Actions fired at each schedule switch, e.g. \'[{"action": "reset_adam"}, {"action": "lr_boost", "net": "critic", "k": 10, "steps": 200000}]\'',
+    )
+    parser.add_argument(
+        "--obs_norm_cap", default=0, type=int, help="Observation normaliser as a moving average over this many steps (0 = off)"
+    )
+    parser.add_argument(
+        "--td_scaler_cap",
+        default=None,
+        type=int,
+        nargs=2,
+        metavar=("STEPS", "EPISODES"),
+        help="TD-error scaler stats as moving averages over STEPS steps and EPISODES episodes",
+    )
+    parser.add_argument(
+        "--adaptive_lr",
+        default=None,
+        type=float,
+        nargs=3,
+        metavar=("SHORT", "LONG", "KMAX"),
+        help="Scale both step sizes by clip(short / long moving average of |TD error|, 1, KMAX)",
+    )
     parser.add_argument(
         "--n_eval",
         default=0,
@@ -688,6 +873,14 @@ def get_parser(add_help=True):
         default=100,
         type=int,
         help="Sample gradient norms every k updates (averaged per episode)",
+    )
+    parser.add_argument(
+        "--dense_window",
+        default=None,
+        type=int,
+        nargs=2,
+        metavar=("BEFORE", "AFTER"),
+        help="Log every step to <run_id>_dense.csv from BEFORE steps before to AFTER steps after each switch",
     )
     parser.add_argument(
         "--vlines",
