@@ -115,15 +115,17 @@ class Levers:
         self._apply_beta2(t)
 
     def _boost(self, net, t):
+        """Product over actions; within an action the most recent firing wins (a second switch restarts it)"""
         m = 1.0
         for a in self.lr_actions:
             if net not in _nets(a):
                 continue
-            for f in self.fired:
+            for f in reversed(self.fired):
                 u = t - f - a.get("delay", 0)
                 if 0 <= u < a["steps"]:
                     k = a["k"]
                     m *= k if a.get("mode", "decay") == "hold" else 1 + (k - 1) * (1 - u / a["steps"])
+                    break
         return m
 
     def _apply_beta2(self, t):
@@ -144,10 +146,16 @@ class Levers:
         self.ema["long"] += (x - self.ema["long"]) / long
 
     def _adaptive_mult(self):
-        if not self.adaptive or self.ema["n"] < self.adaptive[1]:
+        if not self.adaptive:
+            return 1.0
+        short, long, k_max = self.adaptive
+        n = self.ema["n"]
+        if n < long:
             return 1.0  # long window not filled yet
-        ratio = self.ema["short"] / max(self.ema["long"], 1e-8)
-        return float(min(max(ratio, 1.0), self.adaptive[2]))
+        # bias-corrected averages (both start at 0), so a constant TD error gives exactly 1
+        s = self.ema["short"] / (1 - (1 - 1 / short) ** n)
+        l = self.ema["long"] / (1 - (1 - 1 / long) ** n)
+        return float(min(max(s / max(l, 1e-8), 1.0), k_max))
 
     def _reset_stats(self):
         self._acc = {"lr_mult_actor": 0.0, "lr_mult_critic": 0.0}
