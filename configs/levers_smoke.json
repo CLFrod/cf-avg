@@ -1,10 +1,10 @@
 {
  "_comment": [
-  "Smoke test of configs/levers_<env>.json: every condition once on Hopper gear2x, 40k steps, switch at 20k.",
-  "Debug partition: sbatch -p debug --time=00:30:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/levers_smoke.json $HOME/cf-avg/scripts/trillium/avg_multi.sh"
+  "Smoke test of configs/levers_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Login node, ~2 min: bash scripts/trillium/smoke_levers.sh"
  ],
  "defaults": {
-  "N": 40000,
+  "N": 3000,
   "seeds": [
    18606
   ],
@@ -14,14 +14,14 @@
   "pnorm": true,
   "scaled_td": true,
   "n_eval": 1,
-  "video_every": 20000,
+  "video_every": 1500,
   "save_model": true,
   "save_model_every": 1000000,
   "dense_window": [
-   5000,
-   15000
+   500,
+   1000
   ],
-  "checkpoint": 10000
+  "checkpoint": 1000
  },
  "envs": {
   "Hopper-v4": {
@@ -35,7 +35,7 @@
    "name": "legacy-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -47,7 +47,7 @@
    "name": "fix-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -64,7 +64,7 @@
    "name": "L02_shrink_obs-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -81,7 +81,7 @@
    "name": "L02_hard_obs-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -98,7 +98,7 @@
    "name": "L03_cap_obs-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -110,7 +110,7 @@
    "name": "L04_shrink_scaler-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -128,7 +128,7 @@
    "name": "L05_cap_scaler-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -143,7 +143,7 @@
    "name": "L06_warm_start-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -161,7 +161,7 @@
    "name": "L07_reset_adam-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -178,7 +178,7 @@
    "name": "L08_critic_x3-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -197,7 +197,7 @@
    "name": "L08_critic_x10-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -216,7 +216,7 @@
    "name": "L09_actor_freeze-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -236,7 +236,7 @@
    "name": "L10_actor_delayed-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -256,7 +256,7 @@
    "name": "L11_adaptive-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -272,7 +272,7 @@
    "name": "L12_beta2-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -290,7 +290,7 @@
    "name": "S01_stats_stack-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }
@@ -316,7 +316,7 @@
    "name": "S02_sink-gear2x",
    "schedule": [
     {
-     "step": 20000,
+     "step": 1500,
      "mods": {
       "gear_scale": 2.0
      }

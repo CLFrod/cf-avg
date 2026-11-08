@@ -92,16 +92,15 @@ def config(env, stats_root, smoke=False):
         "envs": {env: LR[env]},
         "experiments": experiments,
     }
-    if smoke:  # every condition once, on a short run: 18 runs, gear2x only, one seed
+    if smoke:  # every condition once, on a tiny run: 18 runs, gear2x only, one seed (scripts/trillium/smoke_levers.sh)
         for e in experiments:
             if "schedule" in e:
-                e["schedule"][0]["step"] = 20_000
+                e["schedule"][0]["step"] = 1500
         cfg["_comment"] = [
-            "Smoke test of configs/levers_<env>.json: every condition once on Hopper gear2x, 40k steps, switch at 20k.",
-            "Debug partition: sbatch -p debug --time=00:30:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/levers_smoke.json"
-            " $HOME/cf-avg/scripts/trillium/avg_multi.sh",
+            "Smoke test of configs/levers_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+            "Login node, ~2 min: bash scripts/trillium/smoke_levers.sh",
         ]
-        cfg["defaults"].update(N=40_000, seeds=SEEDS[:1], n_eval=1, video_every=20_000, dense_window=[5_000, 15_000], checkpoint=10_000)
+        cfg["defaults"].update(N=3000, seeds=SEEDS[:1], n_eval=1, video_every=1500, dense_window=[500, 1000], checkpoint=1000)
     return cfg
 
 
