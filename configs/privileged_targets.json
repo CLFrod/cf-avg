@@ -1,0 +1,56 @@
+{
+ "Hopper-v4": {
+  "gear2x": {
+   "entropy_target": 1.45,
+   "entropy_pre": 2.63,
+   "entropy_post_fix": 2.28,
+   "r_pre": 3.18,
+   "r_post_early": 2.795,
+   "reward_offset": 0.38
+  },
+  "heavy": {
+   "entropy_target": 2.91,
+   "entropy_pre": 2.63,
+   "entropy_post_fix": 2.77,
+   "r_pre": 3.18,
+   "r_post_early": 2.641,
+   "reward_offset": 0.54
+  }
+ },
+ "Ant-v4": {
+  "gear2x": {
+   "entropy_target": -4.39,
+   "entropy_pre": -2.86,
+   "entropy_post_fix": 4.42,
+   "r_pre": 3.299,
+   "r_post_early": -1.172,
+   "reward_offset": 4.47
+  },
+  "limb_heavy": {
+   "entropy_target": -3.99,
+   "entropy_pre": -2.86,
+   "entropy_post_fix": -2.84,
+   "r_pre": 3.299,
+   "r_post_early": 2.37,
+   "reward_offset": 0.93
+  }
+ },
+ "Humanoid-v4": {
+  "gear2x": {
+   "entropy_target": 10.38,
+   "entropy_pre": 11.7,
+   "entropy_post_fix": 12.72,
+   "r_pre": 6.419,
+   "r_post_early": 5.844,
+   "reward_offset": 0.57
+  },
+  "heavy": {
+   "entropy_target": 11.66,
+   "entropy_pre": 11.7,
+   "entropy_post_fix": 15.43,
+   "r_pre": 6.419,
+   "r_post_early": 5.139,
+   "reward_offset": 1.28
+  }
+ }
+}

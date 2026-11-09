@@ -1,16 +1,19 @@
 #!/bin/bash
-# Login-node smoke test of the lever study (within its limits: 3 cores, < 1 GB, ~2 min):
-#   every condition of configs/levers_<env>.json once, on Hopper gear2x, 3000 steps with the switch at 1500
-#   (configs/levers_smoke.json), then one lever run resumed from its checkpoint. Checks that every run completes,
-#   the hook fires at the switch, the warm start finds its files on $SCRATCH, and the dense/metrics logs are written.
+# Login-node smoke test of a lever study config (within its limits: 3 cores, < 1 GB, ~2 min):
+#   every condition of the smoke config once, on Hopper gear2x, 3000 steps with the switch at 1500, then the last
+#   lever run resumed from its checkpoint. Checks that every run completes, the hook fires at the switch, load_stats
+#   finds its files on $SCRATCH, and the dense/metrics logs are written.
 #
-#   cd $HOME/cf-avg && bash scripts/trillium/smoke_levers.sh
+#   cd $HOME/cf-avg && bash scripts/trillium/smoke_levers.sh                      # batch 1: configs/levers_smoke.json
+#   CONFIG=configs/priv_smoke.json bash scripts/trillium/smoke_levers.sh          # batch 2
 #
 # Results are left in $SCRATCH/results/smoke_levers_<time>/ (delete when done).
 set -euo pipefail
 
 REPO=${REPO:-$HOME/cf-avg}
-OUT=${OUT:-$SCRATCH/results/smoke_levers_$(date +%Y%m%d_%H%M%S)}
+CONFIG=${CONFIG:-configs/levers_smoke.json}
+PREFIX=$(basename "$CONFIG" _smoke.json)                                  # levers | priv
+OUT=${OUT:-$SCRATCH/results/smoke_${PREFIX}_$(date +%Y%m%d_%H%M%S)}
 [ -n "${MUJOCO_GL-}" ] || export MUJOCO_GL=osmesa
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg PYTHONDONTWRITEBYTECODE=1
 export MPLCONFIGDIR=${MPLCONFIGDIR:-$SCRATCH/.cache/matplotlib}
@@ -30,12 +33,13 @@ for e in hopper ant humanoid; do
     echo "  levers_$e: ${plan%%$'\n'*}"
 done
 
-step "2/3 every condition once (18 runs, 3 at a time)"
-python -m incremental_rl.avg_multi_experiment --config configs/levers_smoke.json --results_dir "$OUT" --n_workers 3 2>/dev/null \
+step "2/3 every condition once (3 at a time)"
+python -m incremental_rl.avg_multi_experiment --config "$CONFIG" --results_dir "$OUT" --n_workers 3 2>/dev/null \
     | grep -E "^\[FAILED|finished in" || true
 
-step "3/3 resume the kitchen-sink run by 1500 steps"
-python -m incremental_rl.avg_multi_experiment --resume_from "$OUT/S02_sink-*" --results_dir "$OUT" --N 4500 2>/dev/null \
+LAST=$(ls -d "$OUT"/*-gear2x-Hopper-v4-* | grep -v -E "/(fix|scratch|legacy)-" | tail -1)
+step "3/3 resume $(basename "$LAST") by 1500 steps"
+python -m incremental_rl.avg_multi_experiment --resume_from "$LAST" --results_dir "$OUT" --N 4500 2>/dev/null \
     | grep -E "resume from|^\[(done|FAILED)" || true
 
 step "summary"
@@ -51,11 +55,13 @@ for d in sorted(glob.glob(f"{out}/*-gear2x-Hopper-v4-*")):
     fired = "[levers] step 1500" in log
     dense = bool(glob.glob(f"{d}/*_dense.csv"))
     want = name != "scratch"  # the from-scratch run has no switch, so no hook and no dense window
-    loaded = name != "L06_warm_start" or "fired ['load_stats']" in log
-    good = meta["complete"] and fired == want and dense == want and loaded and len(rows[0]) >= 48
+    actions = json.load(open(f"{d}/multi_experiment.json"))["hyperparams"]["on_shift"]
+    loaded = not any(a["action"] == "load_stats" for a in actions) or "'load_stats'" in log
+    clean = "Traceback" not in log
+    good = meta["complete"] and fired == want and dense == want and loaded and clean and len(rows[0]) >= 50
     ok &= good
-    print(f"  {'OK ' if good else 'BAD'} {name:18s} steps {meta['step']:4d}  episodes {len(rows):3d}  columns {len(rows[0])}  "
-          f"hook fired={fired}  dense={dense}" + ("" if loaded else "  WARM START NOT LOADED"))
+    print(f"  {'OK ' if good else 'BAD'} {name:20s} steps {meta['step']:4d}  episodes {len(rows):3d}  columns {len(rows[0])}  "
+          f"hook fired={fired}  dense={dense}" + ("" if loaded else "  STATS NOT LOADED") + ("" if clean else "  TRACEBACK"))
 print("\nALL OK" if ok else "\nSOMETHING FAILED: see run.log in the folders above")
 print(f"results: {out}")
 EOF

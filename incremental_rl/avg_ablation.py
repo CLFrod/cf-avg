@@ -238,6 +238,7 @@ class AVG:
         self.td_error_scaler = TDErrorScaler(*(cfg.td_scaler_cap or (None, None)))
         self.G = 0
         self.last_td_abs = 0.0
+        self.last_lprob = 0.0
 
         # Per-episode accumulators for logging (see pop_episode_stats); dense = sample every step
         self.stats_every = cfg.stats_every
@@ -284,6 +285,7 @@ class AVG:
         delta = reward + (1 - done) * self.gamma * target_V - q
         delta_raw = delta.item()
         self.last_td_abs = abs(delta_raw)
+        self.last_lprob = lprob.detach().item()
         sigma = float(self.td_error_scaler.sigma)
         if self.cfg.scaled_td:
             delta /= sigma
@@ -602,7 +604,7 @@ def main(args):
                 obs_t,
                 action,
                 next_obs_t,
-                reward,
+                reward + levers.reward_offset(t),
                 terminated,
                 truncated=truncated,
                 **action_info,
@@ -828,7 +830,8 @@ def get_parser(add_help=True):
         "--on_shift",
         default=[],
         type=json.loads,
-        help='Actions fired at each schedule switch, e.g. \'[{"action": "reset_adam"}, {"action": "lr_boost", "net": "critic", "k": 10, "steps": 200000}]\'',
+        help='Actions fired at each schedule switch (see incremental_rl/levers.py ACTIONS), e.g. \'[{"action": "reset_adam"}, '
+             '{"action": "set_alpha", "k": 0.1, "steps": 300000}, {"action": "reward_offset", "offset": 4.5, "steps": 300000}]\'',
     )
     parser.add_argument(
         "--obs_norm_cap", default=0, type=int, help="Observation normaliser as a moving average over this many steps (0 = off)"
