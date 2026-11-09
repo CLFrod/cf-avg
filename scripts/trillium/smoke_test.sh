@@ -9,11 +9,11 @@
 #
 #   cd $HOME/cf-avg && bash scripts/trillium/smoke_test.sh
 #
-# Results are left in $SCRATCH/results/smoke_<time>/ for inspection (delete when done).
+# Results are left in $SCRATCH/smoke/smoke_test_<time>/ for inspection (delete when done).
 set -euo pipefail
 
 REPO=${REPO:-$HOME/cf-avg}
-OUT=${OUT:-$SCRATCH/results/smoke_$(date +%Y%m%d_%H%M%S)}
+OUT=${OUT:-$SCRATCH/smoke/smoke_test_$(date +%Y%m%d_%H%M%S)}
 N=${N:-3000}
 [ -n "${MUJOCO_GL-}" ] || export MUJOCO_GL=osmesa
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg PYTHONDONTWRITEBYTECODE=1

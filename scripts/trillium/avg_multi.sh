@@ -7,8 +7,9 @@
 #
 # Everything else is optional, set through environment variables (Slurm's --export=ALL,VAR=value):
 #   a different experiment file:      bash submit.sh --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_jobtest.json
+#     (results land in $SCRATCH/results_<config name>/, e.g. results_trillium_jobtest; RESULTS_DIR=... overrides)
 #   continue runs stopped at the time limit (TIME_LIMIT hours, default 23.5) in a new job:
-#                                      sbatch --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*" avg_multi.sh
+#                                      sbatch --export=ALL,RESUME_FROM="$SCRATCH/results_<config name>/*-2026*" avg_multi.sh
 #     (add --dependency=afterany:<jobid> to queue it behind the first job automatically)
 #   more runs than one node holds:    one job per slice, SHARD=1/2 and SHARD=2/2 (same CONFIG)
 #   a single experiment without a config: CONFIG= plus RUN_ARGS="--env Hopper-v4 --N 12000000 ..." and NAME/N_RUNS
@@ -23,12 +24,13 @@
 set -euo pipefail
 
 REPO=${REPO:-$HOME/cf-avg}                     # read-only on compute nodes: code + .venv only
-RESULTS_DIR=${RESULTS_DIR:-$SCRATCH/results}   # all outputs go to scratch
 NAME=${NAME:-avg_multi}
 N_RUNS=${N_RUNS:-188}
 START_SEED=${START_SEED:-0}
 RESERVE_CORES=${RESERVE_CORES:-4}              # launcher + OS + file I/O
 CONFIG=${CONFIG-$REPO/configs/trillium_dynamics_3env_24m.json}   # the experiment; CONFIG= (empty) -> single run from RUN_ARGS
+# Outputs go to scratch, one folder per config: results_<config name> (RESULTS_DIR overrides)
+RESULTS_DIR=${RESULTS_DIR:-$SCRATCH/results${CONFIG:+_$(basename "${CONFIG%.json}")}}
 RESUME_FROM=${RESUME_FROM:-}                   # glob of run folders to continue from their checkpoints
 TIME_LIMIT=${TIME_LIMIT:-23.5}                 # hours: runs checkpoint and exit cleanly before the 24 h walltime
 RUN_ARGS=${RUN_ARGS-}

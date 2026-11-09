@@ -7,13 +7,13 @@
 #   cd $HOME/cf-avg && bash scripts/trillium/smoke_levers.sh                      # batch 1: configs/levers_smoke.json
 #   CONFIG=configs/priv_smoke.json bash scripts/trillium/smoke_levers.sh          # batch 2
 #
-# Results are left in $SCRATCH/results/smoke_levers_<time>/ (delete when done).
+# Results are left in $SCRATCH/smoke/<prefix>_<time>/, away from the real results (delete when done).
 set -euo pipefail
 
 REPO=${REPO:-$HOME/cf-avg}
 CONFIG=${CONFIG:-configs/levers_smoke.json}
 PREFIX=$(basename "$CONFIG" _smoke.json)                                  # levers | priv
-OUT=${OUT:-$SCRATCH/results/smoke_${PREFIX}_$(date +%Y%m%d_%H%M%S)}
+OUT=${OUT:-$SCRATCH/smoke/${PREFIX}_$(date +%Y%m%d_%H%M%S)}
 [ -n "${MUJOCO_GL-}" ] || export MUJOCO_GL=osmesa
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg PYTHONDONTWRITEBYTECODE=1
 export MPLCONFIGDIR=${MPLCONFIGDIR:-$SCRATCH/.cache/matplotlib}
