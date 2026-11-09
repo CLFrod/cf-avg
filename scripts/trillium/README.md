@@ -32,7 +32,7 @@ bash scripts/trillium/smoke_test.sh
 
 Checks the interpreter, OSMesa rendering, that the real config resolves (every env/mod validated), runs one tiny
 run per env (Hopper / Ant / Humanoid) through a physics + termination switch with videos and checkpoints into
-`$SCRATCH/smoke/<prefix>_<time>/`, then resumes one of them. Ends with `ALL OK` and per-run steps/s.
+`$SCRATCH/results/smoke_<time>/`, then resumes one of them. Ends with `ALL OK` and per-run steps/s.
 
 ## 3. Submit
 
@@ -45,7 +45,7 @@ bash scripts/trillium/submit.sh        # runs configs/trillium_dynamics_3env_24m
 behind it (it exits in seconds if nothing needs resuming):
 
 ```bash
-bash scripts/trillium/submit.sh --dependency=afterany:<jobid> --export=ALL,RESUME_FROM="$SCRATCH/results_<config name>/*-2026*"
+bash scripts/trillium/submit.sh --dependency=afterany:<jobid> --export=ALL,RESUME_FROM="$SCRATCH/results/*-2026*"
 ```
 
 Other experiments: `--export=ALL,CONFIG=<file>`; the options are listed in the header of `avg_multi.sh`
