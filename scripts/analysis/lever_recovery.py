@@ -15,6 +15,7 @@ from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
 RUN_RE = re.compile(r"^(?P<cond>.+?)-(?P<shift>gear2x|heavy|limb_heavy)-(?P<env>Hopper-v4|Ant-v4|Humanoid-v4)-(?P<seed>\d+)-\d{8}_\d{6}$")
 TICK, WIN = 10_000, 50_000
+BASE = "fix"  # the paired reference condition; --base legacy for a batch run without the G-truncation fix
 DTICK = 1_000
 COLS = ["return", "ep_len", "td_error", "td_signed", "td_abs_raw", "td_sigma", "critic_loss", "actor_loss", "entropy",
         "actor_grad_norm", "critic_grad_norm", "dq_da_norm", "actor_update_ratio", "critic_update_ratio",
@@ -219,7 +220,10 @@ def main():
     p.add_argument("--out", default="results_trillium/lever_results/analysis")
     p.add_argument("--dense", action="store_true", help="also plot the per-step dense logs (slow on first run)")
     p.add_argument("--only", nargs="*", default=None, help="restrict to these env or shift names")
+    p.add_argument("--base", default="fix", help="Reference condition the levers are paired against (fix or legacy)")
     args = p.parse_args()
+    global BASE
+    BASE = args.base
     cache_dir = os.path.join(args.out, "cache")
     os.makedirs(cache_dir, exist_ok=True)
     runs = discover(args.root)
@@ -237,7 +241,7 @@ def main():
                                     "`*`/`**` mark a paired t-test at 0.05/0.01 (df = seeds - 1). From-scratch runs are aligned so their step 0 is the switch.\n"]
     heat, gfix = {}, {}
     for (env, shift), conds in sorted(runs.items()):
-        S = switch_step(conds["fix"])
+        S = switch_step(conds[BASE])
         print(f"== {env} {shift}: switch at {S}, {len(conds)} conditions")
         curves = {}
         for cond, folders in conds.items():
@@ -245,28 +249,28 @@ def main():
             for seed, d in sorted(folders):
                 cur = load_run(d, cache_dir)
                 curves[cond][seed] = align_scratch(cur, S) if cond == "scratch" else cur
-        N = int(next(iter(curves["fix"].values()))["N"])
-        x = next(iter(curves["fix"].values()))["x"]
+        N = int(next(iter(curves[BASE].values()))["N"])
+        x = next(iter(curves[BASE].values()))["x"]
         H = N - S
-        tgt_fix = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves["fix"].values()]))
+        tgt_fix = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves[BASE].values()]))
         tgt_scr = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves["scratch"].values()]))
         metrics = {cond: {seed: recovery(c, S, tgt_fix, tgt_scr, cond != "scratch") for seed, c in cs.items()} for cond, cs in curves.items()}
         for cond, ms in metrics.items():
             for seed, m in ms.items():
                 per_run.append({"env": env, "shift": shift, "cond": cond, "seed": seed, "S": S, "N": N, **m})
 
-        keys = [k for k in next(iter(metrics["fix"].values())) if not k.endswith("_cens")]
+        keys = [k for k in next(iter(metrics[BASE].values())) if not k.endswith("_cens")]
         rows = {}
         for cond, ms in metrics.items():
             for k in keys:
                 mean, se = mean_se([m[k] for m in ms.values()])
                 row = {"env": env, "shift": shift, "cond": cond, "n": len(ms), "metric": k, "mean": mean, "se": se,
                        "censored": int(np.nansum([m.get(k + "_cens", 0) for m in ms.values()]))}
-                fm, _ = mean_se([m[k] for m in metrics["fix"].values()])
+                fm, _ = mean_se([m[k] for m in metrics[BASE].values()])
                 row["fix_mean"] = fm
-                pairs = [(ms[s][k], metrics["fix"][s][k]) for s in ms if s in metrics["fix"]]
+                pairs = [(ms[s][k], metrics[BASE][s][k]) for s in ms if s in metrics[BASE]]
                 diffs = np.array([a - b for a, b in pairs if np.isfinite(a) and np.isfinite(b)])
-                if cond != "fix" and len(diffs) >= 2:
+                if cond != BASE and len(diffs) >= 2:
                     row["diff"], row["diff_se"] = mean_se(diffs)
                     better = diffs < 0 if k in LOWER_BETTER else diffs > 0
                     row["wins"], row["n_pairs"] = int(better.sum()), len(diffs)
@@ -278,14 +282,14 @@ def main():
                 summary.append(row)
                 rows[(cond, k)] = row
         for k in ("early_1M", "t80_fix", "asym", "regret_fix"):
-            heat.setdefault(k, {})[(env, shift)] = {c: rows[(c, k)] for c in conds if c != "fix"}
+            heat.setdefault(k, {})[(env, shift)] = {c: rows[(c, k)] for c in conds if c != BASE}
         heat.setdefault("H", {})[(env, shift)] = H
 
         # markdown table
         md.append(f"\n## {env}, {shift} (switch at {fmt_steps(S)}, horizon {fmt_steps(H)}; fix asymptote {tgt_fix:.0f}, scratch asymptote {tgt_scr:.0f})\n")
         md.append("| condition | pre-shift | dip | t80_fix (cens.) | Δ t80 vs fix | early_1M | Δ vs fix | asymptote | regret |")
         md.append("|---|---|---|---|---|---|---|---|---|")
-        for cond in ["fix", "legacy", "scratch"] + [c for c in ORDER if c in conds and c not in ("legacy",)]:
+        for cond in dict.fromkeys([BASE, "legacy", "scratch"] + [c for c in ORDER if c in conds and c not in ("legacy", BASE)]):
             if cond not in conds:
                 continue
             r = {k: rows[(cond, k)] for k in keys}
@@ -299,7 +303,7 @@ def main():
         md.append(f"\nPolicy response to the switch (pre = last 200k steps before it, post = 50k..300k after it):\n")
         md.append("| condition | entropy pre → post | actor grad norm post/pre | ep_len pre → post | critic loss post/pre |")
         md.append("|---|---|---|---|---|")
-        for cond in ["fix", "legacy"] + [c for c in ORDER if c in conds and c != "legacy"]:
+        for cond in dict.fromkeys([BASE, "legacy"] + [c for c in ORDER if c in conds and c not in ("legacy", BASE)]):
             if cond not in conds:
                 continue
             def win(k, lo, hi):
@@ -313,7 +317,7 @@ def main():
         # recovery curves, one panel per lever group
         fig, axes = plt.subplots(1, len(GROUPS), figsize=(6 * len(GROUPS), 5), sharey=True)
         for ax, (title, members) in zip(axes, GROUPS.items()):
-            for ref in ("fix", "scratch"):
+            for ref in (BASE, "scratch"):
                 col, ls = REF_STYLE[ref]
                 band(ax, x, np.array([c["return"] for c in curves[ref].values()]), col, ls, ref, lw=1.8)
             for cond in members:
@@ -338,7 +342,7 @@ def main():
         fig, axes = plt.subplots(1, 2, figsize=(14, 0.42 * len(conds_plot) + 1.5), sharey=True)
         yl = np.arange(len(conds_plot))
         for ax, k, label in zip(axes, ("t80_fix", "early_1M"), ("steps after switch to reach 80% of fix asymptote", "mean return, first 1M steps after switch")):
-            fv = [metrics["fix"][s][k] for s in metrics["fix"]]
+            fv = [metrics[BASE][s][k] for s in metrics[BASE]]
             ax.axvspan(np.mean(fv) - np.std(fv, ddof=1) / np.sqrt(len(fv)), np.mean(fv) + np.std(fv, ddof=1) / np.sqrt(len(fv)), color="#0b0b0b", alpha=0.08, lw=0)
             ax.axvline(np.mean(fv), color="#0b0b0b", lw=1.2, label="fix (mean ± SE)")
             for yi, cond in zip(yl, conds_plot):
@@ -367,7 +371,7 @@ def main():
         for j, (title, members) in enumerate(GROUPS.items()):
             for i, k in enumerate(mech):
                 ax = axes[i, j]
-                for ref in ("fix", "scratch"):
+                for ref in (BASE, "scratch"):
                     band(ax, x, np.array([c[k] for c in curves[ref].values()]), *REF_STYLE[ref], ref, lw=1.8)
                 for cond in members:
                     if cond in curves:
@@ -386,20 +390,20 @@ def main():
         fig.tight_layout()
         fig.savefig(os.path.join(args.out, f"mechanism_{env}_{shift}.png"), dpi=130)
         plt.close(fig)
-        gfix.setdefault((env, shift), {ref: curves[ref] for ref in ("fix", "legacy") if ref in curves})
+        gfix.setdefault((env, shift), {ref: curves[ref] for ref in (BASE, "legacy") if ref in curves})
 
         # diagnostics grid, lever vs fix
         ddir = os.path.join(args.out, "diag", f"{env}_{shift}")
         os.makedirs(ddir, exist_ok=True)
         for cond in conds:
-            if cond == "fix":
+            if cond == BASE:
                 continue
             fig, axes = plt.subplots(4, 4, figsize=(18, 12))
             for ax, k in zip(axes.flat, DIAG):
-                if k not in next(iter(curves["fix"].values())):
+                if k not in next(iter(curves[BASE].values())):
                     ax.axis("off")
                     continue
-                band(ax, x, np.array([c[k] for c in curves["fix"].values()]), *REF_STYLE["fix"], "fix")
+                band(ax, x, np.array([c[k] for c in curves[BASE].values()]), *REF_STYLE[BASE], BASE)
                 if cond == "scratch" or k in next(iter(curves[cond].values())):
                     band(ax, x, np.array([c[k] for c in curves[cond].values()]), *color_of(cond), cond)
                 ax.axvline(S, color="#8a8983", lw=0.8, ls="--")
@@ -422,11 +426,11 @@ def main():
                 dense[cond] = [d for d in (load_dense(f, S, cache_dir) for _, f in sorted(folders)) if d is not None]
             dcols = ["reward", "td_signed", "td_abs", "td_sigma", "critic_grad_norm", "actor_grad_norm", "dq_da_norm", "critic_update_ratio", "actor_update_ratio", "entropy"]
             fig, axes = plt.subplots(len(dcols), len(GROUPS), figsize=(6 * len(GROUPS), 2.3 * len(dcols)), sharex=True)
-            dx = dense["fix"][0]["x"]
+            dx = dense[BASE][0]["x"]
             for j, (title, members) in enumerate(GROUPS.items()):
                 for i, k in enumerate(dcols):
                     ax = axes[i, j]
-                    band(ax, dx, np.array([d[k] for d in dense["fix"]]), *REF_STYLE["fix"], "fix")
+                    band(ax, dx, np.array([d[k] for d in dense[BASE]]), *REF_STYLE[BASE], BASE)
                     for cond in members:
                         if cond in dense and dense[cond]:
                             band(ax, dx, np.array([d[k] for d in dense[cond]]), *color_of(cond), cond)
@@ -464,7 +468,7 @@ def main():
     for j, pr in enumerate(pairs):
         for i, k in enumerate(gk):
             ax = axes[i, j]
-            for ref in ("legacy", "fix"):
+            for ref in ("legacy", BASE):
                 if ref not in gfix[pr]:
                     continue
                 cs = gfix[pr][ref]
