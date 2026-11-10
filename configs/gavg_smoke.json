@@ -134,28 +134,6 @@
      "count": 10000
     }
    ]
-  },
-  {
-   "name": "GACx_reward_offset-gear2x",
-   "schedule": [
-    {
-     "step": 1500,
-     "mods": {
-      "gear_scale": 2.0
-     }
-    }
-   ],
-   "greedy_ac": [
-    30,
-    0.1
-   ],
-   "on_shift": [
-    {
-     "action": "reward_offset",
-     "offset": 0.38,
-     "steps": 800
-    }
-   ]
   }
  ]
 }

@@ -56,7 +56,6 @@ METHODS_BATCH3 = [  # Greedy AVG study (Greedy AC actor update from step 0, lega
     ("GACx_obs_soft", "27", "Greedy AVG + observation normaliser soft reset"),
     ("GACx_obs_window", "28", "Greedy AVG + observation normaliser window"),
     ("GACx_priv_obs", "29", "Greedy AVG + observation normalizer values from previous runs"),
-    ("GACx_reward_offset", "30", "Greedy AVG + reward offset"),
 ]
 REF_LABEL = {"legacy": "base run (legacy G reset)", "fix": "base run (G-truncation fix)"}
 VARIANT_COLOR = "#2a78d6"

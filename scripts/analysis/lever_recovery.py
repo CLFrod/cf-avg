@@ -34,7 +34,7 @@ BATCH2_GROUPS = {
 }
 BATCH3_GROUPS = {
     "Greedy AVG": ["GAC", "GACscratch"],
-    "Greedy AVG + recovery methods": ["GACx_obs_soft", "GACx_obs_window", "GACx_priv_obs", "GACx_reward_offset"],
+    "Greedy AVG + recovery methods": ["GACx_obs_soft", "GACx_obs_window", "GACx_priv_obs"],
 }
 BATCH_KEYS = [(BATCH3_GROUPS, ["GAC", "GACx_obs_soft"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
