@@ -51,6 +51,15 @@ METHODS_BATCH2 = [  # the privileged methods, numbered as in the Shift Recovery 
     ("P9_obs_track_offset", "24", "Previous-run normalizer + entropy tracking + reward offset"),
     ("P10_obs_track_adam", "25", "Previous-run normalizer + entropy tracking + optimizer reset"),
 ]
+METHODS_BATCH3 = [  # Greedy AC as a recovery method (N=30, top 3, plain Sarsa critic unless noted)
+    ("GAC_shift", "26", "Greedy AC switched on at the shift"),
+    ("GAC_shift_obs", "27", "Greedy AC at the shift + observation normaliser soft reset"),
+    ("GAC_shift_1M", "28", "Greedy AC for 1M steps at the shift"),
+    ("GAC_shift_wide", "29", "Greedy AC at the shift, wide proposal"),
+    ("GAC_shift_soft", "30", "Greedy AC at the shift, soft (entropy) critic target"),
+    ("BestOf30_shift", "31", "Best of 30 actor samples by Q at execution only"),
+    ("GAC_full", "32", "Greedy AC from step 0"),
+]
 REF_LABEL = {"legacy": "base run (legacy G reset)", "fix": "base run (G-truncation fix)"}
 VARIANT_COLOR = "#2a78d6"
 
@@ -73,9 +82,10 @@ def main():
     p.add_argument("--cache", default="results_trillium/lever_results/analysis/cache")
     p.add_argument("--out", default="results_trillium/lever_results/analysis/variants")
     p.add_argument("--base", default="fix", help="Paired base condition (green); the other of fix/legacy is drawn in red if present")
-    p.add_argument("--batch", type=int, default=1, choices=(1, 2), help="1: the batch-1 methods and stacks; 2: the privileged methods")
+    p.add_argument("--batch", type=int, default=1, choices=(1, 2, 3), help="1: the batch-1 methods and stacks; 2: the privileged methods; 3: Greedy AC")
     args = p.parse_args()
-    methods = [(c, (f"{n:02d}" if isinstance(n, int) else n), name) for c, n, name in (METHODS if args.batch == 1 else METHODS_BATCH2)]
+    lists = {1: METHODS, 2: METHODS_BATCH2, 3: METHODS_BATCH3}
+    methods = [(c, (f"{n:02d}" if isinstance(n, int) else n), name) for c, n, name in lists[args.batch]]
     other = "legacy" if args.base == "fix" else "fix"
     refs = [(other, REF_LABEL[other], "#e34948", ":"), (args.base, REF_LABEL[args.base], "#1baf7a", "-")]
     for env, shifts in SHIFTS.items():

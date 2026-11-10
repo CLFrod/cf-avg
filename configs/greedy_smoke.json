@@ -1,0 +1,176 @@
+{
+ "_comment": [
+  "Smoke test of configs/greedy_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Login node, ~1 min: CONFIG=configs/greedy_smoke.json bash scripts/trillium/smoke_levers.sh"
+ ],
+ "defaults": {
+  "N": 3000,
+  "seeds": [
+   18606
+  ],
+  "gamma": 0.99,
+  "beta1": 0.0,
+  "normalize_obs": true,
+  "pnorm": true,
+  "scaled_td": true,
+  "legacy_g_reset": true,
+  "n_eval": 1,
+  "video_every": 1500,
+  "save_model": true,
+  "save_model_every": 1000000,
+  "dense_window": [
+   500,
+   1000
+  ],
+  "checkpoint": 1000
+ },
+ "envs": {
+  "Hopper-v4": {
+   "actor_lr": 1.1e-05,
+   "critic_lr": 7.7e-05,
+   "alpha_lr": 0.3
+  }
+ },
+ "experiments": [
+  {
+   "name": "legacy-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_shift-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "greedy_ac",
+     "N": 30,
+     "rho": 0.1
+    }
+   ]
+  },
+  {
+   "name": "GAC_shift_obs-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 1000
+    },
+    {
+     "action": "greedy_ac",
+     "N": 30,
+     "rho": 0.1
+    }
+   ]
+  },
+  {
+   "name": "GAC_shift_1M-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "greedy_ac",
+     "N": 30,
+     "rho": 0.1,
+     "steps": 800
+    }
+   ]
+  },
+  {
+   "name": "GAC_shift_wide-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "greedy_ac",
+     "N": 30,
+     "rho": 0.1,
+     "proposal_std": 1.0
+    }
+   ]
+  },
+  {
+   "name": "GAC_shift_soft-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "greedy_ac",
+     "N": 30,
+     "rho": 0.1,
+     "soft_critic": true
+    }
+   ]
+  },
+  {
+   "name": "BestOf30_shift-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "best_of",
+     "N": 30
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  }
+ ]
+}

@@ -17,12 +17,12 @@ RUN_RE = re.compile(r"^(?P<cond>.+?)-(?P<shift>gear2x|heavy|limb_heavy)-(?P<env>
 TICK, WIN = 10_000, 50_000
 BASE = "fix"  # the paired reference condition; --base legacy for a batch run without the G-truncation fix
 DTICK = 1_000
-COLS = ["return", "ep_len", "td_error", "td_signed", "td_abs_raw", "td_sigma", "critic_loss", "actor_loss", "entropy",
+COLS = ["return", "ep_len", "td_error", "td_signed", "td_abs_raw", "td_sigma", "critic_loss", "actor_loss", "entropy", "greedy_on", "top_q_gap", "top_sat", "proposal_entropy", "best_of_on", "actor_loss_q",
         "actor_grad_norm", "critic_grad_norm", "dq_da_norm", "actor_update_ratio", "critic_update_ratio",
         "actor_weight_norm", "critic_weight_norm", "scaler_G_count", "scaler_G2_mean", "scaler_reward_var", "obs_count",
         "obs_mean_drift", "obs_var_drift", "lr_mult_actor", "lr_mult_critic", "mod_action"]
 DENSE_COLS = ["reward", "td_signed", "td_sigma", "actor_grad_norm", "critic_grad_norm", "dq_da_norm",
-              "actor_update_ratio", "critic_update_ratio", "entropy", "terminated"]
+              "actor_update_ratio", "critic_update_ratio", "entropy", "top_q_gap", "proposal_entropy", "terminated"]
 BATCH1_GROUPS = {
     "Statistics levers": ["L02_shrink_obs", "L02_hard_obs", "L03_cap_obs", "L04_shrink_scaler", "L05_cap_scaler", "L06_warm_start"],
     "Optimiser & step-size levers": ["L07_reset_adam", "L08_critic_x3", "L08_critic_x10", "L09_actor_freeze", "L10_actor_delayed", "L11_adaptive", "L12_beta2"],
@@ -32,6 +32,10 @@ BATCH2_GROUPS = {
     "Privileged singles": ["L02_shrink_obs", "P1_alpha_x0.1", "P1_alpha_x0.3", "P2_alpha_track", "P3_reward_offset", "P4_priv_obs"],
     "Stacks on privileged obs stats": ["P5_obs_alpha", "P6_obs_track", "P7_obs_offset", "P8_obs_alpha_offset", "P9_obs_track_offset", "P10_obs_track_adam"],
 }
+BATCH3_GROUPS = {
+    "Greedy AC at the shift": ["GAC_shift", "GAC_shift_obs", "GAC_shift_1M", "GAC_shift_wide", "GAC_shift_soft"],
+    "Controls & from step 0": ["BestOf30_shift", "GAC_full", "L02_shrink_obs", "L09_actor_freeze"],
+}
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
 ORDER = [c for g in GROUPS.values() for c in g]
 
@@ -39,7 +43,7 @@ ORDER = [c for g in GROUPS.values() for c in g]
 def select_groups(conds):
     """Pick the panel layout whose conditions appear in the results"""
     global GROUPS, ORDER
-    for g in (BATCH2_GROUPS, BATCH1_GROUPS):
+    for g in (BATCH3_GROUPS, BATCH2_GROUPS, BATCH1_GROUPS):
         if any(c in conds for c in g[list(g)[-1]]):
             GROUPS = g
             break
