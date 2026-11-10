@@ -33,15 +33,10 @@ BATCH2_GROUPS = {
     "Stacks on privileged obs stats": ["P5_obs_alpha", "P6_obs_track", "P7_obs_offset", "P8_obs_alpha_offset", "P9_obs_track_offset", "P10_obs_track_adam"],
 }
 BATCH3_GROUPS = {
-    "Greedy AC at the shift": ["GAC_shift", "GAC_shift_obs", "GAC_shift_1M", "GAC_shift_wide", "GAC_shift_soft"],
-    "Controls & from step 0": ["BestOf30_shift", "GAC_full", "L02_shrink_obs", "L09_actor_freeze"],
-    "Entropy tracking (corrected controller)": ["P2_alpha_track", "P6_obs_track", "P9_obs_track_offset", "P10_obs_track_adam"],
+    "Greedy AVG": ["GAC", "GACscratch"],
+    "Greedy AVG + recovery methods": ["GACx_obs_soft", "GACx_obs_window", "GACx_priv_obs", "GACx_reward_offset"],
 }
-BATCH4_GROUPS = {
-    "Greedy AVG + statistics methods": ["GACx_obs_soft", "GACx_obs_hard", "GACx_obs_window", "GACx_stats_stack", "GACx_priv_obs"],
-    "Greedy AVG + other methods": ["GACx_adam", "GACx_reward_offset", "GAC_full"],
-}
-BATCH_KEYS = [(BATCH4_GROUPS, ["GACx_obs_soft", "GACx_adam"]), (BATCH3_GROUPS, ["GAC_shift", "GAC_full"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
+BATCH_KEYS = [(BATCH3_GROUPS, ["GAC", "GACx_obs_soft"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
 ORDER = [c for g in GROUPS.values() for c in g]
 
@@ -258,13 +253,13 @@ def main():
             curves[cond] = {}
             for seed, d in sorted(folders):
                 cur = load_run(d, cache_dir)
-                curves[cond][seed] = align_scratch(cur, S) if cond == "scratch" else cur
+                curves[cond][seed] = align_scratch(cur, S) if cond.endswith("scratch") else cur
         N = int(next(iter(curves[BASE].values()))["N"])
         x = next(iter(curves[BASE].values()))["x"]
         H = N - S
         tgt_fix = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves[BASE].values()]))
         tgt_scr = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves["scratch"].values()])) if "scratch" in curves else float("nan")
-        metrics = {cond: {seed: recovery(c, S, tgt_fix, tgt_scr, cond != "scratch") for seed, c in cs.items()} for cond, cs in curves.items()}
+        metrics = {cond: {seed: recovery(c, S, tgt_fix, tgt_scr, not cond.endswith("scratch")) for seed, c in cs.items()} for cond, cs in curves.items()}
         for cond, ms in metrics.items():
             for seed, m in ms.items():
                 per_run.append({"env": env, "shift": shift, "cond": cond, "seed": seed, "S": S, "N": N, **m})
@@ -414,7 +409,7 @@ def main():
                     ax.axis("off")
                     continue
                 band(ax, x, np.array([c[k] for c in curves[BASE].values()]), *REF_STYLE[BASE], BASE)
-                if cond == "scratch" or k in next(iter(curves[cond].values())):
+                if cond.endswith("scratch") or k in next(iter(curves[cond].values())):
                     band(ax, x, np.array([c[k] for c in curves[cond].values()]), *color_of(cond), cond)
                 ax.axvline(S, color="#8a8983", lw=0.8, ls="--")
                 ax.set_xlim(S - 500_000, min(N, S + 3_000_000))
@@ -431,7 +426,7 @@ def main():
         if args.dense:
             dense = {}
             for cond, folders in conds.items():
-                if cond == "scratch":
+                if cond.endswith("scratch"):
                     continue
                 dense[cond] = [d for d in (load_dense(f, S, cache_dir) for _, f in sorted(folders)) if d is not None]
             dcols = ["reward", "td_signed", "td_abs", "td_sigma", "critic_grad_norm", "actor_grad_norm", "dq_da_norm", "critic_update_ratio", "actor_update_ratio", "entropy"]
