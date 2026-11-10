@@ -171,6 +171,125 @@
     30,
     0.1
    ]
+  },
+  {
+   "name": "P2_alpha_track-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "alpha_track",
+     "target": 1.45,
+     "steps": 800,
+     "eta": 0.0001,
+     "window": 1000,
+     "min": 0.02,
+     "max": 2.0,
+     "release": 200
+    }
+   ]
+  },
+  {
+   "name": "P6_obs_track-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "load_stats",
+     "path": "$SCRATCH/results/scratch-gear2x-Hopper-v4-18606-*/*_model_1M.pt",
+     "obs_only": true,
+     "count": 10000
+    },
+    {
+     "action": "alpha_track",
+     "target": 1.45,
+     "steps": 800,
+     "eta": 0.0001,
+     "window": 1000,
+     "min": 0.02,
+     "max": 2.0,
+     "release": 200
+    }
+   ]
+  },
+  {
+   "name": "P9_obs_track_offset-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "load_stats",
+     "path": "$SCRATCH/results/scratch-gear2x-Hopper-v4-18606-*/*_model_1M.pt",
+     "obs_only": true,
+     "count": 10000
+    },
+    {
+     "action": "alpha_track",
+     "target": 1.45,
+     "steps": 800,
+     "eta": 0.0001,
+     "window": 1000,
+     "min": 0.02,
+     "max": 2.0,
+     "release": 200
+    },
+    {
+     "action": "reward_offset",
+     "offset": 0.38,
+     "steps": 800
+    }
+   ]
+  },
+  {
+   "name": "P10_obs_track_adam-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "on_shift": [
+    {
+     "action": "load_stats",
+     "path": "$SCRATCH/results/scratch-gear2x-Hopper-v4-18606-*/*_model_1M.pt",
+     "obs_only": true,
+     "count": 10000
+    },
+    {
+     "action": "alpha_track",
+     "target": 1.45,
+     "steps": 800,
+     "eta": 0.0001,
+     "window": 1000,
+     "min": 0.02,
+     "max": 2.0,
+     "release": 200
+    },
+    {
+     "action": "reset_adam",
+     "net": "both"
+    }
+   ]
   }
  ]
 }

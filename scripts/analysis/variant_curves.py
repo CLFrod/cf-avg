@@ -59,6 +59,10 @@ METHODS_BATCH3 = [  # Greedy AC as a recovery method (N=30, top 3, plain Sarsa c
     ("GAC_shift_soft", "30", "Greedy AC at the shift, soft (entropy) critic target"),
     ("BestOf30_shift", "31", "Best of 30 actor samples by Q at execution only"),
     ("GAC_full", "32", "Greedy AC from step 0"),
+    ("P2_alpha_track", "17", "Entropy tracking (corrected controller)"),
+    ("P6_obs_track", "21", "Previous-run normalizer + entropy tracking (corrected)"),
+    ("P9_obs_track_offset", "24", "Previous-run normalizer + entropy tracking (corrected) + reward offset"),
+    ("P10_obs_track_adam", "25", "Previous-run normalizer + entropy tracking (corrected) + optimizer reset"),
 ]
 REF_LABEL = {"legacy": "base run (legacy G reset)", "fix": "base run (G-truncation fix)"}
 VARIANT_COLOR = "#2a78d6"

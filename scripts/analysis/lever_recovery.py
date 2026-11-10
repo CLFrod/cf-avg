@@ -35,7 +35,9 @@ BATCH2_GROUPS = {
 BATCH3_GROUPS = {
     "Greedy AC at the shift": ["GAC_shift", "GAC_shift_obs", "GAC_shift_1M", "GAC_shift_wide", "GAC_shift_soft"],
     "Controls & from step 0": ["BestOf30_shift", "GAC_full", "L02_shrink_obs", "L09_actor_freeze"],
+    "Entropy tracking (corrected controller)": ["P2_alpha_track", "P6_obs_track", "P9_obs_track_offset", "P10_obs_track_adam"],
 }
+BATCH_KEYS = [(BATCH3_GROUPS, ["GAC_shift", "GAC_full"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
 ORDER = [c for g in GROUPS.values() for c in g]
 
@@ -43,8 +45,8 @@ ORDER = [c for g in GROUPS.values() for c in g]
 def select_groups(conds):
     """Pick the panel layout whose conditions appear in the results"""
     global GROUPS, ORDER
-    for g in (BATCH3_GROUPS, BATCH2_GROUPS, BATCH1_GROUPS):
-        if any(c in conds for c in g[list(g)[-1]]):
+    for g, keys in BATCH_KEYS:
+        if any(c in conds for c in keys):
             GROUPS = g
             break
     ORDER = [c for g in GROUPS.values() for c in g]
