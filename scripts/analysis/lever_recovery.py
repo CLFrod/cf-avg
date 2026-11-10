@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
-RUN_RE = re.compile(r"^(?P<cond>.+?)-(?P<shift>gear2x|heavy|limb_heavy)-(?P<env>Hopper-v4|Ant-v4|Humanoid-v4)-(?P<seed>\d+)-\d{8}_\d{6}$")
+RUN_RE = re.compile(r"^(?P<cond>.+?)-(?P<shift>gear2x|heavy|limb_heavy|moon|slippery|moon_back)-(?P<env>Hopper-v4|Ant-v4|Humanoid-v4)-(?P<seed>\d+)-\d{8}_\d{6}$")
 TICK, WIN = 10_000, 50_000
 BASE = "fix"  # the paired reference condition; --base legacy for a batch run without the G-truncation fix
 DTICK = 1_000
@@ -37,7 +37,11 @@ BATCH3_GROUPS = {
     "Controls & from step 0": ["BestOf30_shift", "GAC_full", "L02_shrink_obs", "L09_actor_freeze"],
     "Entropy tracking (corrected controller)": ["P2_alpha_track", "P6_obs_track", "P9_obs_track_offset", "P10_obs_track_adam"],
 }
-BATCH_KEYS = [(BATCH3_GROUPS, ["GAC_shift", "GAC_full"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
+BATCH4_GROUPS = {
+    "Greedy AVG + statistics methods": ["GACx_obs_soft", "GACx_obs_hard", "GACx_obs_window", "GACx_stats_stack", "GACx_priv_obs"],
+    "Greedy AVG + other methods": ["GACx_adam", "GACx_reward_offset", "GAC_full"],
+}
+BATCH_KEYS = [(BATCH4_GROUPS, ["GACx_obs_soft", "GACx_adam"]), (BATCH3_GROUPS, ["GAC_shift", "GAC_full"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
 ORDER = [c for g in GROUPS.values() for c in g]
 
@@ -259,7 +263,7 @@ def main():
         x = next(iter(curves[BASE].values()))["x"]
         H = N - S
         tgt_fix = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves[BASE].values()]))
-        tgt_scr = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves["scratch"].values()]))
+        tgt_scr = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves["scratch"].values()])) if "scratch" in curves else float("nan")
         metrics = {cond: {seed: recovery(c, S, tgt_fix, tgt_scr, cond != "scratch") for seed, c in cs.items()} for cond, cs in curves.items()}
         for cond, ms in metrics.items():
             for seed, m in ms.items():
@@ -323,7 +327,7 @@ def main():
         # recovery curves, one panel per lever group
         fig, axes = plt.subplots(1, len(GROUPS), figsize=(6 * len(GROUPS), 5), sharey=True)
         for ax, (title, members) in zip(axes, GROUPS.items()):
-            for ref in (BASE, "scratch"):
+            for ref in [r for r in (BASE, "scratch") if r in curves]:
                 col, ls = REF_STYLE[ref]
                 band(ax, x, np.array([c["return"] for c in curves[ref].values()]), col, ls, ref, lw=1.8)
             for cond in members:
@@ -344,7 +348,7 @@ def main():
         plt.close(fig)
 
         # recovery time and early return per condition, seeds as dots
-        conds_plot = [c for c in ORDER if c in conds] + ["scratch"]
+        conds_plot = [c for c in ORDER if c in conds] + (["scratch"] if "scratch" in conds else [])
         fig, axes = plt.subplots(1, 2, figsize=(14, 0.42 * len(conds_plot) + 1.5), sharey=True)
         yl = np.arange(len(conds_plot))
         for ax, k, label in zip(axes, ("t80_fix", "early_1M"), ("steps after switch to reach 80% of fix asymptote", "mean return, first 1M steps after switch")):
@@ -377,7 +381,7 @@ def main():
         for j, (title, members) in enumerate(GROUPS.items()):
             for i, k in enumerate(mech):
                 ax = axes[i, j]
-                for ref in (BASE, "scratch"):
+                for ref in [r for r in (BASE, "scratch") if r in curves]:
                     band(ax, x, np.array([c[k] for c in curves[ref].values()]), *REF_STYLE[ref], ref, lw=1.8)
                 for cond in members:
                     if cond in curves:
@@ -500,7 +504,7 @@ def main():
         "t80_fix": (f"steps to 80% of the {BASE} asymptote: % of horizon saved vs {BASE} (blue = faster)", lambda r, H: -100 * r["diff"] / H, 30),
         "asym": (f"post-shift asymptote (last 1M steps): % change vs {BASE} (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 30),
     }
-    conds_heat = [c for c in ORDER if c != "legacy"] + (["legacy"] if "legacy" in ORDER else []) + ["scratch"]
+    conds_heat = [c for c in ORDER if c != "legacy"] + (["legacy"] if "legacy" in ORDER else []) + (["scratch"] if any("scratch" in heat["early_1M"][pr] for pr in pairs) else [])
     for k, (title, fn, vmax) in specs.items():
         M = np.full((len(conds_heat), len(pairs)), np.nan)
         txt = [["" for _ in pairs] for _ in conds_heat]

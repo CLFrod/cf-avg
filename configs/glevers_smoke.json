@@ -1,0 +1,216 @@
+{
+ "_comment": [
+  "Smoke test of configs/glevers_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Login node, ~1 min: CONFIG=configs/glevers_smoke.json bash scripts/trillium/smoke_levers.sh"
+ ],
+ "defaults": {
+  "N": 3000,
+  "seeds": [
+   18606
+  ],
+  "gamma": 0.99,
+  "beta1": 0.0,
+  "normalize_obs": true,
+  "pnorm": true,
+  "scaled_td": true,
+  "legacy_g_reset": true,
+  "n_eval": 1,
+  "video_every": 1500,
+  "save_model": true,
+  "save_model_every": 1000000,
+  "dense_window": [
+   500,
+   1000
+  ],
+  "checkpoint": 1000
+ },
+ "envs": {
+  "Hopper-v4": {
+   "actor_lr": 1.1e-05,
+   "critic_lr": 7.7e-05,
+   "alpha_lr": 0.3
+  }
+ },
+ "experiments": [
+  {
+   "name": "legacy-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  },
+  {
+   "name": "GACx_obs_soft-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 1000
+    }
+   ]
+  },
+  {
+   "name": "GACx_obs_hard-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 0
+    }
+   ]
+  },
+  {
+   "name": "GACx_obs_window-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "obs_norm_cap": 100000
+  },
+  {
+   "name": "GACx_adam-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "on_shift": [
+    {
+     "action": "reset_adam",
+     "net": "both"
+    }
+   ]
+  },
+  {
+   "name": "GACx_stats_stack-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "on_shift": [
+    {
+     "action": "shrink_obs_norm",
+     "count": 1000
+    },
+    {
+     "action": "shrink_td_scaler",
+     "steps": 800,
+     "episodes": 10
+    },
+    {
+     "action": "reset_adam",
+     "net": "both"
+    }
+   ]
+  },
+  {
+   "name": "GACx_priv_obs-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "on_shift": [
+    {
+     "action": "load_stats",
+     "path": "$SCRATCH/results/scratch-gear2x-Hopper-v4-18606-*/*_model_1M.pt",
+     "obs_only": true,
+     "count": 10000
+    }
+   ]
+  },
+  {
+   "name": "GACx_reward_offset-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ],
+   "on_shift": [
+    {
+     "action": "reward_offset",
+     "offset": 0.38,
+     "steps": 800
+    }
+   ]
+  }
+ ]
+}

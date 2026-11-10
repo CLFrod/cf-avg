@@ -1,0 +1,187 @@
+{
+ "_comment": [
+  "Greedy AVG vs AVG on the dynamics-shift suite, Hopper-v4, G-truncation fix: 6M steps, switch at 3M",
+  "(there-and-back: base, moon, base in thirds). Shifts: moon gravity, gear2x, slippery (friction 0.3x), heavy (mass 2x), moon and back.",
+  "Greedy AVG = Greedy AC (N=30, top 3, plain Sarsa critic) from step 0. 10 seeds. Analyse with lever_recovery.py --base fix."
+ ],
+ "defaults": {
+  "N": 6000000,
+  "seeds": [
+   18606,
+   16858,
+   63790,
+   15097,
+   62693,
+   24601,
+   7331,
+   90210,
+   41275,
+   5812
+  ],
+  "gamma": 0.99,
+  "beta1": 0.0,
+  "normalize_obs": true,
+  "pnorm": true,
+  "scaled_td": true,
+  "legacy_g_reset": false,
+  "n_eval": 2,
+  "video_every": 3000000,
+  "save_model": true,
+  "save_model_every": 1000000,
+  "dense_window": [
+   20000,
+   200000
+  ]
+ },
+ "envs": {
+  "Hopper-v4": {
+   "actor_lr": 1.1e-05,
+   "critic_lr": 7.7e-05,
+   "alpha_lr": 0.3
+  }
+ },
+ "experiments": [
+  {
+   "name": "fix-moon",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "gravity": -1.62
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-moon",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "gravity": -1.62
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  },
+  {
+   "name": "fix-gear2x",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-gear2x",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  },
+  {
+   "name": "fix-slippery",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "friction_scale": 0.3
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-slippery",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "friction_scale": 0.3
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  },
+  {
+   "name": "fix-heavy",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "mass_scale": 2.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-heavy",
+   "schedule": [
+    {
+     "step": 3000000,
+     "mods": {
+      "mass_scale": 2.0
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  },
+  {
+   "name": "fix-moon_back",
+   "schedule": [
+    {
+     "step": 2000000,
+     "mods": {
+      "gravity": -1.62
+     }
+    },
+    {
+     "step": 4000000,
+     "mods": {
+      "gravity": -9.81
+     }
+    }
+   ]
+  },
+  {
+   "name": "GAC_full-moon_back",
+   "schedule": [
+    {
+     "step": 2000000,
+     "mods": {
+      "gravity": -1.62
+     }
+    },
+    {
+     "step": 4000000,
+     "mods": {
+      "gravity": -9.81
+     }
+    }
+   ],
+   "greedy_ac": [
+    30,
+    0.1
+   ]
+  }
+ ]
+}
