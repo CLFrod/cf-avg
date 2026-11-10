@@ -1,6 +1,6 @@
-"""One recovery-curve figure per batch-1 method and env: the method against the two base runs only.
+"""One recovery-curve figure per method and env: the method against the two base runs only.
 
-    python scripts/analysis/variant_curves.py [--cache results_trillium/lever_results/analysis/cache] [--out .../analysis/variants]
+    python scripts/analysis/variant_curves.py [--cache results_trillium/lever_results/analysis/cache] [--out .../analysis/variants] [--base fix|legacy] [--batch 1|2]
 
 Each figure has one panel per shift. Lines: base run with the legacy G reset (dotted red), base run with the
 G-truncation fix (green) and the method (blue), mean +- SE over seeds of the 50k-window return. Dashed vertical line
@@ -34,6 +34,22 @@ METHODS = [  # (condition, doc number, name)
     ("L10_actor_delayed", 11, "Delayed actor step size increase"),
     ("L11_adaptive", 12, "Adaptive step size"),
     ("L12_beta2", 13, "Adam beta2 = 0.99"),
+    ("S01_stats_stack", 14, "Multi statistics reset"),
+    ("S02_sink", 15, "Every method at once"),
+]
+METHODS_BATCH2 = [  # the privileged methods, numbered as in the Shift Recovery Methods doc
+    ("L02_shrink_obs", "01", "Observation normaliser soft reset"),
+    ("P1_alpha_x0.1", "16a", "Entropy coefficient cut (0.1x)"),
+    ("P1_alpha_x0.3", "16b", "Entropy coefficient cut (0.3x)"),
+    ("P2_alpha_track", "17", "Entropy tracking"),
+    ("P3_reward_offset", "18", "Reward offset"),
+    ("P4_priv_obs", "19", "Use observation normalizer values from previous runs"),
+    ("P5_obs_alpha", "20", "Previous-run normalizer + entropy cut (0.1x)"),
+    ("P6_obs_track", "21", "Previous-run normalizer + entropy tracking"),
+    ("P7_obs_offset", "22", "Previous-run normalizer + reward offset"),
+    ("P8_obs_alpha_offset", "23", "Previous-run normalizer + entropy cut (0.1x) + reward offset"),
+    ("P9_obs_track_offset", "24", "Previous-run normalizer + entropy tracking + reward offset"),
+    ("P10_obs_track_adam", "25", "Previous-run normalizer + entropy tracking + optimizer reset"),
 ]
 REF_LABEL = {"legacy": "base run (legacy G reset)", "fix": "base run (G-truncation fix)"}
 VARIANT_COLOR = "#2a78d6"
@@ -57,14 +73,16 @@ def main():
     p.add_argument("--cache", default="results_trillium/lever_results/analysis/cache")
     p.add_argument("--out", default="results_trillium/lever_results/analysis/variants")
     p.add_argument("--base", default="fix", help="Paired base condition (green); the other of fix/legacy is drawn in red if present")
+    p.add_argument("--batch", type=int, default=1, choices=(1, 2), help="1: the batch-1 methods and stacks; 2: the privileged methods")
     args = p.parse_args()
+    methods = [(c, (f"{n:02d}" if isinstance(n, int) else n), name) for c, n, name in (METHODS if args.batch == 1 else METHODS_BATCH2)]
     other = "legacy" if args.base == "fix" else "fix"
     refs = [(other, REF_LABEL[other], "#e34948", ":"), (args.base, REF_LABEL[args.base], "#1baf7a", "-")]
     for env, shifts in SHIFTS.items():
         S = SWITCH[env]
         os.makedirs(os.path.join(args.out, env), exist_ok=True)
-        data = {(c, s): runs(args.cache, c, env, s) for s in shifts for c in [args.base, other] + [m[0] for m in METHODS]}
-        for cond, num, name in METHODS:
+        data = {(c, s): runs(args.cache, c, env, s) for s in shifts for c in [args.base, other] + [m[0] for m in methods]}
+        for cond, num, name in methods:
             fig, axes = plt.subplots(1, len(shifts), figsize=(6.5 * len(shifts), 5), sharey=True)
             for ax, shift in zip(axes, shifts):
                 fix = data[(args.base, shift)]
@@ -86,10 +104,10 @@ def main():
                 ax.legend(fontsize=8, frameon=False, loc="lower right")
                 style(ax)
             axes[0].set_ylabel(f"return ({WIN // 1000}k window, mean ± SE over {len(zs)} seeds)")
-            fig.suptitle(f"{num}. {name}: recovery after the switch at {fmt_steps(S)} (dotted: 80% of the base run's final return)", fontsize=12)
+            fig.suptitle(f"{num.lstrip('0')}. {name}: recovery after the switch at {fmt_steps(S)} (dotted: 80% of the base run's final return)", fontsize=12)
             fig.tight_layout()
             slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-            path = os.path.join(args.out, env, f"{num:02d}_{slug}.png")
+            path = os.path.join(args.out, env, f"{num}_{slug}.png")
             fig.savefig(path, dpi=140)
             plt.close(fig)
             print(path)

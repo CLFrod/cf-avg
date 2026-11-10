@@ -172,7 +172,7 @@ class Levers:
                 if 0 <= u < a["steps"]:
                     tr, w = self.track, a.get("window", 1000)
                     tr["n"] += 1
-                    tr["h"] += (-self.agent.last_lprob - tr["h"]) / min(tr["n"], w)
+                    tr["h"] += (self.agent.last_entropy - tr["h"]) / min(tr["n"], w)  # Gaussian entropy, same quantity as the target
                     if tr["n"] >= w:
                         tr["mult"] *= math.exp(-a.get("eta", 1e-4) * (tr["h"] - a["target"]))
                         tr["mult"] = min(max(tr["mult"], a.get("min", 0.02)), a.get("max", 2.0))

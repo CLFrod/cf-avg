@@ -490,9 +490,9 @@ def main():
     # heatmaps: change vs fix across all env/shift pairs
     cmap = LinearSegmentedColormap.from_list("div", ["#eb6834", "#d9d8d3", "#2a78d6"])
     specs = {
-        "early_1M": ("mean return over the first 1M post-switch steps: % change vs fix (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 50),
-        "t80_fix": ("steps to 80% of the fix asymptote: % of horizon saved vs fix (blue = faster)", lambda r, H: -100 * r["diff"] / H, 30),
-        "asym": ("post-shift asymptote (last 1M steps): % change vs fix (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 30),
+        "early_1M": (f"mean return over the first 1M post-switch steps: % change vs {BASE} (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 50),
+        "t80_fix": (f"steps to 80% of the {BASE} asymptote: % of horizon saved vs {BASE} (blue = faster)", lambda r, H: -100 * r["diff"] / H, 30),
+        "asym": (f"post-shift asymptote (last 1M steps): % change vs {BASE} (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 30),
     }
     conds_heat = [c for c in ORDER if c != "legacy"] + (["legacy"] if "legacy" in ORDER else []) + ["scratch"]
     for k, (title, fn, vmax) in specs.items():

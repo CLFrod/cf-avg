@@ -239,6 +239,7 @@ class AVG:
         self.G = 0
         self.last_td_abs = 0.0
         self.last_lprob = 0.0
+        self.last_entropy = 0.0
 
         # Per-episode accumulators for logging (see pop_episode_stats); dense = sample every step
         self.stats_every = cfg.stats_every
@@ -286,6 +287,7 @@ class AVG:
         delta_raw = delta.item()
         self.last_td_abs = abs(delta_raw)
         self.last_lprob = lprob.detach().item()
+        self.last_entropy = dist.entropy().item()
         sigma = float(self.td_error_scaler.sigma)
         if self.cfg.scaled_td:
             delta /= sigma
