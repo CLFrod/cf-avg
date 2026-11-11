@@ -122,7 +122,9 @@ class Levers:
 
     def act_greedy_ac(self, a):
         """Switch the actor update to Greedy AC from this switch on (or for `steps` steps)"""
-        self.agent.enable_greedy(int(a.get("N", 30)), float(a.get("rho", 0.1)), a.get("tau"), not a.get("soft_critic", False), a.get("proposal_std"))
+        self.agent.enable_greedy(int(a.get("N", 30)), float(a.get("rho", 0.1)), a.get("tau"), not a.get("soft_critic", False), a.get("proposal_std"),
+                                 fit=a.get("fit", "full"), max_logstd=a.get("max_logstd"), proposal_max_logstd=a.get("proposal_max_logstd"),
+                                 entropy_reg=a.get("entropy_reg"), local_std=a.get("local_std"))
         self.greedy_until = self.fired[-1] + a["steps"] if "steps" in a else None
 
     def act_best_of(self, a):

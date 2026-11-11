@@ -98,7 +98,9 @@ def restore(state, agent, env):
     agent.steps, agent.G = a["steps"], a["G"]
     if a.get("proposal") is not None:  # Greedy AC state: proposal policy, its optimizer, and whether the update is on
         g = a["greedy"] or {"n": 1, "k": 1, "tau": agent.alpha, "hard": True}
-        agent.enable_greedy(g["n"], g["k"] / g["n"], g["tau"], g["hard"], reinit=False)
+        agent.enable_greedy(g["n"], g["k"] / g["n"], g["tau"], g["hard"], reinit=False, fit=g.get("fit", "full"),
+                            max_logstd=g.get("max_logstd"), proposal_max_logstd=g.get("proposal_max_logstd"),
+                            entropy_reg=g.get("entropy_reg"), local_std=g.get("local_std"))
         agent.greedy = a["greedy"]
         agent.proposal.load_state_dict(a["proposal"])
         agent.popt2.load_state_dict(a["popt2"])
