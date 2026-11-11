@@ -237,6 +237,13 @@ class AVG:
         self.gamma = cfg.gamma
         self.device = cfg.device
 
+        # Critic ensemble: extra critics with their own optimizers; candidates are ranked by mean - pessimism * std
+        self.Q_extra = [Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic, pnorm=cfg.pnorm)
+                        for _ in range(max(0, int(cfg.n_critics) - 1))]
+        self.qopt_extra = [torch.optim.Adam(qk.parameters(), lr=cfg.critic_lr, betas=cfg.betas, weight_decay=cfg.l2_critic, fused=True)
+                           for qk in self.Q_extra]
+        self.pessimism = float(cfg.greedy_pessimism)
+
         # Greedy AC (Neumann et al. 2023): CCEM actor update from proposal-policy samples; off until enabled
         self.proposal, self.popt2, self.greedy = None, None, None
         self.best_of = None  # execution-only control: act with the best of N actor samples by Q
@@ -264,6 +271,13 @@ class AVG:
             return obs
         return torch.from_numpy(obs.astype(np.float32)).unsqueeze(0).to(self.device)
 
+    def q_rank(self, obs_n, a_n):
+        """Score of each candidate action for ranking: mean over the critic ensemble minus pessimism * its std"""
+        qs = torch.stack([self.Q(obs_n, a_n).view(-1)] + [qk(obs_n, a_n).view(-1) for qk in self.Q_extra])
+        if len(self.Q_extra) == 0:
+            return qs[0]
+        return qs.mean(0) - self.pessimism * qs.std(0)
+
     def compute_action(self, obs):
         obs = self.to_tensor(obs)
         action, action_info = self.actor(obs)
@@ -271,7 +285,7 @@ class AVG:
             dist = action_info["dist"]
             u = dist.rsample((self.best_of,)).squeeze(1)  # (N, action_dim) pre-tanh samples, still differentiable
             with torch.no_grad():
-                q = self.Q(obs.expand(self.best_of, -1), torch.tanh(u)).view(-1)
+                q = self.q_rank(obs.expand(self.best_of, -1), torch.tanh(u))
             u_sel = u[q.argmax()].unsqueeze(0)
             lprob = dist.log_prob(u_sel) - (2 * (np.log(2) - u_sel - F.softplus(-2 * u_sel))).sum(axis=1)
             action = torch.tanh(u_sel)
@@ -345,6 +359,12 @@ class AVG:
         if self.cfg.scaled_td:
             delta /= sigma
         qloss = delta**2
+        qloss_extra = []
+        for qk in self.Q_extra:
+            with torch.no_grad():
+                tk = reward + (1 - done) * self.gamma * (qk(next_obs, next_action) - a_c * next_lprob)
+            dk = tk - qk(obs, action.detach())
+            qloss_extra.append((dk / sigma if self.cfg.scaled_td else dk) ** 2)
 
         # Policy loss: AVG's reparameterised step, or Greedy AC's likelihood of the best proposal samples
         q_pi = self.Q(obs, action)
@@ -363,7 +383,7 @@ class AVG:
                     u = kwargs["mu"].detach() + g["local_std"] * torch.randn(g["n"], kwargs["mu"].shape[-1], device=self.device)
                 else:
                     u = pd.sample((g["n"],)).squeeze(1)  # (n, action_dim) pre-tanh samples
-                q_s = self.Q(obs.expand(g["n"], -1), torch.tanh(u)).view(-1)
+                q_s = self.q_rank(obs.expand(g["n"], -1), torch.tanh(u))
                 top = q_s.topk(g["k"])
                 u_top = u[top.indices]
                 top_gap = (top.values.mean() - q_pi.detach().view(())).item()
@@ -398,6 +418,10 @@ class AVG:
         self.qopt.zero_grad()
         qloss.backward()
         self.qopt.step()
+        for opt, lk in zip(self.qopt_extra, qloss_extra):
+            opt.zero_grad()
+            lk.backward()
+            opt.step()
 
         acc = self._acc
         acc["actor_loss"] += ploss.item()
@@ -515,6 +539,7 @@ class AVG:
         model = {
             "actor": self.actor.state_dict(),
             "critic": self.Q.state_dict(),
+            "critic_extra": [qk.state_dict() for qk in self.Q_extra],
             "policy_opt": self.popt.state_dict(),
             "critic_opt": self.qopt.state_dict(),
             "obs_rms": ckpt.obs_rms_state(env) if env is not None else None,
@@ -942,6 +967,8 @@ def get_parser(add_help=True):
     parser.add_argument("--greedy_fit", default="full", choices=("full", "mean"), help="Greedy AC actor fit: full (mean and std, the paper) or mean (std keeps AVG's soft update)")
     parser.add_argument("--greedy_max_logstd", default=None, type=float, help="Under Greedy AC, cap the actor's log-std at this value (default: the actor's +2)")
     parser.add_argument("--proposal_max_logstd", default=None, type=float, help="Cap the proposal policy's log-std at this value (default: +2)")
+    parser.add_argument("--n_critics", default=1, type=int, help="Critic ensemble size (1 = AVG's single critic)")
+    parser.add_argument("--greedy_pessimism", default=0.0, type=float, help="Rank Greedy AC / best-of-N candidates by mean Q minus this many ensemble stds")
     parser.add_argument("--greedy_entropy_reg", default=None, type=float, help="Under Greedy AC, keep alpha*logpi on the actor loss with this coefficient (e.g. the env's alpha)")
     parser.add_argument("--proposal_local_std", default=None, type=float, help="Under Greedy AC, draw candidates around the actor's mean with this fixed pre-tanh std instead of from the proposal policy")
     # Levers (see incremental_rl/levers.py)
