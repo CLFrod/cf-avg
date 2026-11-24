@@ -57,7 +57,7 @@ Other experiments: `--export=ALL,CONFIG=<file>`; the options are listed in the h
 ```bash
 python scripts/sweep/make_sweep_configs.py             # writes configs/sweep_<env>.json (62 draws x 3 seeds each)
 python -m incremental_rl.avg_multi_experiment --config configs/sweep_dmc-finger-spin.json --dry_run   # login-node check
-bash scripts/trillium/submit_sweep.sh                  # one job per config, results in $SCRATCH/results_sweep
+bash scripts/trillium/submit_sweep.sh                  # one job per config, results in $SCRATCH/results_sweep/<env>/
 python scripts/sweep/sweep_summary.py --root $SCRATCH/results_sweep --top 5
 ```
 

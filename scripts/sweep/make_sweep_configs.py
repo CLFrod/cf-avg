@@ -7,7 +7,7 @@
 Each experiment h<hyp_seed> is one draw of (actor_lr, critic_lr, beta1, alpha_lr, gamma), sampled exactly as
 incremental_rl/hyp_sweep.py does for that hyp_seed, plus the two README configs (122, 129) as references.
 Standard AVG (obs norm, pnorm, scaled TD), legacy G reset. 62 draws x 3 seeds = 186 runs, one node.
-Locally: python -m incremental_rl.avg_multi_experiment --config configs/sweep_<env>.json --results_dir results_sweep --n_workers 8
+Locally: python -m incremental_rl.avg_multi_experiment --config configs/sweep_<env>.json --results_dir results_sweep/<env> --n_workers 8
 """
 import argparse, json, os
 import numpy as np
