@@ -1,6 +1,6 @@
 """One recovery-curve figure per method and env: the method against the two base runs only.
 
-    python scripts/analysis/variant_curves.py [--cache results_trillium/lever_results/analysis/cache] [--out .../analysis/variants] [--base fix|legacy] [--batch 1|2]
+    python scripts/plotting/variant_curves.py [--cache results_trillium/lever_results/analysis/cache] [--out .../analysis/variants] [--base fix|legacy] [--batch 1|2]
 
 Each figure has one panel per shift. Lines: base run with the legacy G reset (dotted red), base run with the
 G-truncation fix (green) and the method (blue), mean +- SE over seeds of the 50k-window return. Dashed vertical line
@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "analysis"))
 from lever_recovery import WIN, band, style, fmt_steps, first_reach
 
 SWITCH = {"Hopper-v4": 3_000_000, "Ant-v4": 6_000_000, "Humanoid-v4": 6_000_000}
