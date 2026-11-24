@@ -11,6 +11,7 @@ runs **188 runs at once, one pinned core each** (4 cores reserved for the launch
 | `smoke_test.sh` | ~1 min login-node check of the whole pipeline (rendering, config, runs, resume) |
 | `submit.sh` | submit the job (from anywhere; puts the job directory on scratch) |
 | `avg_multi.sh` | the Slurm job script: loads modules, checks rendering, launches the experiment |
+| `submit_sweep.sh` | submit hyperparameter sweeps, one job per `configs/sweep_*.json` |
 
 ## 1. Setup (login node, once)
 
@@ -50,6 +51,18 @@ bash scripts/trillium/submit.sh --dependency=afterany:<jobid> --export=ALL,RESUM
 
 Other experiments: `--export=ALL,CONFIG=<file>`; the options are listed in the header of `avg_multi.sh`
 (`SHARD=1/2`, `2/2` for a config larger than one node, `TIME_LIMIT`, `RESULTS_DIR`, …).
+
+### Hyperparameter sweeps
+
+```bash
+python scripts/sweep/make_sweep_configs.py             # writes configs/sweep_<env>.json (62 draws x 3 seeds each)
+python -m incremental_rl.avg_multi_experiment --config configs/sweep_dmc-finger-spin.json --dry_run   # login-node check
+bash scripts/trillium/submit_sweep.sh                  # one job per config, results in $SCRATCH/results_sweep
+python scripts/sweep/sweep_summary.py --root $SCRATCH/results_sweep --top 5
+```
+
+The dry run builds every env once, so it also confirms `dm_control` imports on the cluster (rerun `setup_env.sh`
+after pulling, since `uv.lock` changed).
 
 ## 4. Monitor
 
