@@ -126,6 +126,9 @@ What the fields mean for the agent (same for all three):
   rotor inertia, stiffness pulls the joint towards its spring reference
 - **gear** — torque per unit of action (`torque = gear × ctrl`): rescales motor strength without changing the
   action bounds
+- **gain** (`gain_scale`) — for position-servo actuators (dm_control quadruped, `dmc-quadruped-run`): scales the
+  servo gain and its position feedback together, so the target stays the same and the force towards it changes.
+  On plain motors it is the same as `gear_scale`
 - **timestep** — physics integration step; `agent dt = timestep × frame_skip`. Smaller is more accurate and slower,
   larger can go unstable
 - **wind / density / viscosity** — aerodynamic forces; `wind` only acts when `density` or `viscosity` is non-zero

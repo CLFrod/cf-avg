@@ -31,13 +31,19 @@ SCALE_KEYS = {
     "gear_scale": "actuator_gear",
 }
 NAMED_KEYS = ("mass", "friction", "damping", "gear")
-ALL_KEYS = OPT_KEYS + tuple(SCALE_KEYS) + NAMED_KEYS
+ALL_KEYS = OPT_KEYS + tuple(SCALE_KEYS) + ("gain_scale",) + NAMED_KEYS
 BASE_FIELDS = ("body_mass", "body_inertia", "geom_friction", "dof_damping", "dof_armature", "jnt_stiffness",
-               "actuator_gear")
+               "actuator_gear", "actuator_gainprm", "actuator_biasprm")
 
 
 def make_env(env_id, env_kwargs=None, **make_kwargs):
     """ gym.make with the reward/termination kwargs. `max_episode_steps` in env_kwargs goes to gym.make itself """
+    if env_id.startswith("dmc-"):  # dm_control suite: dmc-<domain>-<task>, e.g. dmc-quadruped-run
+        if env_kwargs:
+            raise KeyError(f"env_kwargs are not supported for dm_control envs (got {env_kwargs})")
+        from incremental_rl.envs.dm_control_wrapper import DMControl
+        domain, task = env_id[4:].split("-", 1)
+        return DMControl(domain, task, **make_kwargs)
     env_kwargs = dict(env_kwargs or {})
     if "max_episode_steps" in env_kwargs:
         make_kwargs["max_episode_steps"] = env_kwargs.pop("max_episode_steps")
@@ -106,6 +112,10 @@ def apply(env, mods):
             applied[key] = value
         elif key == "friction_scale":
             model.geom_friction[:] = base["geom_friction"] * np.asarray(value, dtype=float)
+            applied[key] = value
+        elif key == "gain_scale":                   # position servos (dm_control quadruped): gain and its feedback
+            model.actuator_gainprm[:, 0] = base["actuator_gainprm"][:, 0] * value
+            model.actuator_biasprm[:, 1:3] = base["actuator_biasprm"][:, 1:3] * value
             applied[key] = value
         elif key in SCALE_KEYS:                     # damping, armature, stiffness, gear
             field = SCALE_KEYS[key]

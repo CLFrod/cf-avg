@@ -12,7 +12,14 @@ dependencies = [
     "wandb>=0.30.0",
     "termcolor>=3.3.0",
     "opencv-python-headless>=5.0.0.93",
+    "dm-control",
 ]
+
+[tool.uv]
+# keep the simulator every existing result was produced with
+constraint-dependencies = ["mujoco==3.14.0"]
+# labmaze (dm_control.locomotion mazes only) has no Python 3.13 wheel and needs bazel to build
+exclude-dependencies = ["labmaze"]
 
 [[tool.uv.index]]
 # CPU-only PyTorch wheels (this project trains on CPU; the CUDA build is several GB larger)

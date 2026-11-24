@@ -32,9 +32,17 @@ class DMControl(Env):
             obs.append(val.ravel())
         return np.concatenate(obs)
 
+    @property
+    def model(self):
+        return self.env.physics.model.ptr
+
+    @property
+    def data(self):
+        return self.env.physics.data.ptr
+
     def reset(self, **kwargs):
-        if 'seed' in kwargs:
-            self.env = suite.load(domain_name=self.domain, task_name=self.task, task_kwargs={'random': kwargs['seed']})
+        if kwargs.get('seed') is not None:
+            self.env.task.random.seed(kwargs['seed'])  # reseed in place: reloading would drop env mods
         time_step = self.env.reset()
         obs = self.make_obs(time_step.observation)
         return obs, {}
@@ -46,8 +54,8 @@ class DMControl(Env):
         x = self.env.step(action)
 
         reward = x.reward
-        terminated = x.last()
-        truncated = False
+        terminated = x.last() and x.discount == 0.0  # the time limit ends with discount 1
+        truncated = x.last() and not terminated
         info = {}
         next_obs = self.make_obs(x.observation)
 
@@ -97,10 +105,10 @@ if __name__ == "__main__":
     ep_lens = []
     for i in range(EP):
         obs = env.reset()
-        terminated = False
+        terminated = truncated = False
         steps = 0
         ret = 0
-        while not terminated:
+        while not (terminated or truncated):
             action = np.random.uniform(-1, 1, size=env._action_dim)
             next_obs, reward, terminated, truncated, info = env.step(action)
             obs = next_obs
