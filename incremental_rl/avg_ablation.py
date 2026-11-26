@@ -1,5 +1,3 @@
-import copy
-import math
 import torch
 import argparse, traceback
 import csv, json, os, time, wandb
@@ -41,7 +39,7 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
         self.pnorm = pnorm
         self.device = device
-        self.LOG_STD_MAX = 2  # per instance: Greedy AC options lower it
+        self.LOG_STD_MAX = 2
         self.LOG_STD_MIN = -20
 
         # Two hidden layers
@@ -245,23 +243,6 @@ class AVG:
         self.gamma = cfg.gamma
         self.device = cfg.device
 
-        # Critic ensemble: extra critics with their own optimizers; candidates are ranked by mean - pessimism * std
-        self.Q_extra = [Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic, pnorm=cfg.pnorm)
-                        for _ in range(max(0, int(cfg.n_critics) - 1))]
-        self.qopt_extra = [torch.optim.Adam(qk.parameters(), lr=cfg.critic_lr, betas=cfg.betas, weight_decay=cfg.l2_critic, fused=True)
-                           for qk in self.Q_extra]
-        self.pessimism = float(cfg.greedy_pessimism)
-
-        # Greedy AC (Neumann et al. 2023): CCEM actor update from proposal-policy samples; off until enabled
-        self.proposal, self.popt2, self.greedy = None, None, None
-        self.best_of = None  # execution-only control: act with the best of N actor samples by Q
-        if cfg.greedy_ac:
-            self.enable_greedy(int(cfg.greedy_ac[0]), float(cfg.greedy_ac[1]), cfg.proposal_entropy, not cfg.greedy_soft_critic, cfg.proposal_std,
-                               fit=cfg.greedy_fit, max_logstd=cfg.greedy_max_logstd, proposal_max_logstd=cfg.proposal_max_logstd,
-                               entropy_reg=cfg.greedy_entropy_reg, local_std=cfg.proposal_local_std)
-        if cfg.best_of:
-            self.best_of = int(cfg.best_of)
-
         self.td_error_scaler = TDErrorScaler(*(cfg.td_scaler_cap or (None, None)))
         self.G = 0
         self.last_td_abs = 0.0
@@ -279,64 +260,16 @@ class AVG:
             return obs
         return torch.from_numpy(obs.astype(np.float32)).unsqueeze(0).to(self.device)
 
-    def q_rank(self, obs_n, a_n):
-        """Score of each candidate action for ranking: mean over the critic ensemble minus pessimism * its std"""
-        qs = torch.stack([self.Q(obs_n, a_n).view(-1)] + [qk(obs_n, a_n).view(-1) for qk in self.Q_extra])
-        if len(self.Q_extra) == 0:
-            return qs[0]
-        return qs.mean(0) - self.pessimism * qs.std(0)
-
     def compute_action(self, obs):
-        obs = self.to_tensor(obs)
-        action, action_info = self.actor(obs)
-        if self.best_of:
-            dist = action_info["dist"]
-            u = dist.rsample((self.best_of,)).squeeze(1)  # (N, action_dim) pre-tanh samples, still differentiable
-            with torch.no_grad():
-                q = self.q_rank(obs.expand(self.best_of, -1), torch.tanh(u))
-            u_sel = u[q.argmax()].unsqueeze(0)
-            lprob = dist.log_prob(u_sel) - (2 * (np.log(2) - u_sel - F.softplus(-2 * u_sel))).sum(axis=1)
-            action = torch.tanh(u_sel)
-            action_info = {**action_info, "lprob": lprob, "action_pre": u_sel}
+        action, action_info = self.actor(self.to_tensor(obs))
         return action, action_info
-
-    def enable_greedy(self, n, rho, tau=None, hard_critic=True, proposal_std=None, reinit=True,
-                      fit="full", max_logstd=None, proposal_max_logstd=None, entropy_reg=None, local_std=None):
-        """Switch the actor update to Greedy AC: top rho of n proposal samples by Q, proposal entropy coefficient tau.
-        fit: "full" = ML fit of mean and std (the paper); "mean" = ML fit of the mean only, std keeps AVG's soft update"""
-        if not 0 < rho <= 1:
-            raise ValueError(f"greedy_ac rho must be a fraction in (0, 1], got {rho}")
-        if fit not in ("full", "mean"):
-            raise ValueError(f"greedy fit must be 'full' or 'mean', got {fit!r}")
-        if self.proposal is None:
-            self.proposal = copy.deepcopy(self.actor)  # starts as the actor; the entropy bonus widens it
-            self.popt2 = torch.optim.Adam(self.proposal.parameters(), lr=self.cfg.actor_lr, betas=self.cfg.betas,
-                                          weight_decay=self.cfg.l2_actor, fused=True)
-        elif reinit:
-            self.proposal.load_state_dict(self.actor.state_dict())
-            self.popt2.state.clear()
-        if proposal_std is not None and reinit:  # a wide proposal: constant pre-tanh std, as the paper's wide initial distribution
-            with torch.no_grad():
-                self.proposal.log_std.weight.zero_()
-                self.proposal.log_std.bias.fill_(2 * math.log(proposal_std))
-        if max_logstd is not None:
-            self.actor.LOG_STD_MAX = float(max_logstd)
-        if proposal_max_logstd is not None:
-            self.proposal.LOG_STD_MAX = float(proposal_max_logstd)
-        self.greedy = {"n": n, "k": max(1, int(round(rho * n))), "tau": self.alpha if tau is None else tau, "hard": bool(hard_critic),
-                       "fit": fit, "max_logstd": max_logstd, "proposal_max_logstd": proposal_max_logstd,
-                       "entropy_reg": entropy_reg, "local_std": local_std}  # entropy_reg: alpha*logpi kept on the actor; local_std: candidates around the actor's mean
-
-    def disable_greedy(self):
-        self.greedy = None  # back to the AVG reparameterised update; the proposal is kept for a later re-enable
 
     def update(self, obs, action, next_obs, reward, done, truncated=False, **kwargs):
         obs, next_obs = self.to_tensor(obs), self.to_tensor(next_obs)
         dist, lprob = kwargs["dist"], kwargs["lprob"]
 
-        a_c = 0.0 if (self.greedy and self.greedy["hard"]) else self.alpha  # hard Sarsa critic under Greedy AC if asked
         #### Return scaling
-        r_ent = reward - a_c * lprob.detach().item()
+        r_ent = reward - self.alpha * lprob.detach().item()
         self.G += r_ent
         episode_over = done or (truncated and not self.cfg.legacy_g_reset)
         if episode_over:
@@ -356,7 +289,7 @@ class AVG:
             next_action, action_info = self.actor(next_obs)
             next_lprob = action_info["lprob"]
             q2 = self.Q(next_obs, next_action)
-            target_V = q2 - a_c * next_lprob
+            target_V = q2 - self.alpha * next_lprob
 
         delta = reward + (1 - done) * self.gamma * target_V - q
         delta_raw = delta.item()
@@ -367,69 +300,25 @@ class AVG:
         if self.cfg.scaled_td:
             delta /= sigma
         qloss = delta**2
-        qloss_extra = []
-        for qk in self.Q_extra:
-            with torch.no_grad():
-                tk = reward + (1 - done) * self.gamma * (qk(next_obs, next_action) - a_c * next_lprob)
-            dk = tk - qk(obs, action.detach())
-            qloss_extra.append((dk / sigma if self.cfg.scaled_td else dk) ** 2)
 
-        # Policy loss: AVG's reparameterised step, or Greedy AC's likelihood of the best proposal samples
+        # Policy loss, with the reparametrized action
         q_pi = self.Q(obs, action)
+        ploss = self.alpha * lprob - q_pi
+
         self.steps += 1
         sample = self.steps % self.stats_every == 0 or self.dense
         if sample:
             action.retain_grad()  # d(ploss)/d(action) = -dQ/da
             actor_before = [p.detach().clone() for p in self.actor.parameters()]
             critic_before = [p.detach().clone() for p in self.Q.parameters()]
-        g = self.greedy
-        top_gap, top_sat, prop_ent, sloss = 0.0, 0.0, 0.0, None
-        if g:
-            pd = self.proposal(obs)[1]["dist"]
-            with torch.no_grad():
-                if g["local_std"]:  # fixed-width search around the actor's current mean; the learned proposal is unused
-                    u = kwargs["mu"].detach() + g["local_std"] * torch.randn(g["n"], kwargs["mu"].shape[-1], device=self.device)
-                else:
-                    u = pd.sample((g["n"],)).squeeze(1)  # (n, action_dim) pre-tanh samples
-                q_s = self.q_rank(obs.expand(g["n"], -1), torch.tanh(u))
-                top = q_s.topk(g["k"])
-                u_top = u[top.indices]
-                top_gap = (top.values.mean() - q_pi.detach().view(())).item()
-                top_sat = (torch.tanh(u_top).abs() > 0.95).float().mean().item()
-            if g["fit"] == "mean":
-                mu, std = kwargs["mu"], torch.exp(0.5 * kwargs["log_std"])
-                ploss = -Independent(Normal(mu, std.detach()), 1).log_prob(u_top).mean()  # critic ranking moves the mean only
-                eps = ((kwargs["action_pre"] - mu) / std).detach()
-                u_std = mu.detach() + std * eps  # the same sample, differentiable through the std alone
-                lprob_std = Independent(Normal(mu.detach(), std), 1).log_prob(u_std) - (2 * (np.log(2) - u_std - F.softplus(-2 * u_std))).sum(axis=1)
-                ploss = ploss + (self.alpha * lprob_std - self.Q(obs, torch.tanh(u_std))).mean()  # AVG's soft update for the std
-            else:
-                ploss = -dist.log_prob(u_top).mean()
-            if g["entropy_reg"]:
-                ploss = ploss + g["entropy_reg"] * lprob.mean()  # AVG's entropy term, whose tanh correction penalises saturation
-            ent = pd.entropy().mean()
-            prop_ent = ent.item()
-            sloss = -pd.log_prob(u_top).mean() - g["tau"] * ent
-            if sample:
-                action.grad = -torch.autograd.grad(q_pi, action, retain_graph=True)[0]  # -dQ/da, as the AVG path logs it
-        else:
-            ploss = self.alpha * lprob - q_pi
 
         self.popt.zero_grad()
         ploss.backward()
         self.popt.step()
-        if sloss is not None:
-            self.popt2.zero_grad()
-            sloss.backward()
-            self.popt2.step()
 
         self.qopt.zero_grad()
         qloss.backward()
         self.qopt.step()
-        for opt, lk in zip(self.qopt_extra, qloss_extra):
-            opt.zero_grad()
-            lk.backward()
-            opt.step()
 
         acc = self._acc
         acc["actor_loss"] += ploss.item()
@@ -442,11 +331,6 @@ class AVG:
         acc["entropy"] += dist.entropy().item()
         acc["mod_action"] += action.abs().mean().item()
         acc["td_sigma"] += sigma
-        acc["greedy_on"] += float(bool(g))
-        acc["top_q_gap"] += top_gap
-        acc["top_sat"] += top_sat
-        acc["proposal_entropy"] += prop_ent
-        acc["best_of_on"] += float(bool(self.best_of))
         self._acc_n += 1
         if not sample:
             return None
@@ -465,7 +349,7 @@ class AVG:
         self._acc_norm_n += 1
         if not self.dense:
             return None
-        s.update(td_signed=delta_raw, td_sigma=sigma, entropy=dist.entropy().item(), top_q_gap=top_gap, proposal_entropy=prop_ent)
+        s.update(td_signed=delta_raw, td_sigma=sigma, entropy=dist.entropy().item())
         return s
 
     STAT_KEYS = [
@@ -479,11 +363,6 @@ class AVG:
         "entropy",
         "mod_action",
         "td_sigma",
-        "greedy_on",
-        "top_q_gap",
-        "top_sat",
-        "proposal_entropy",
-        "best_of_on",
     ]
     LAYER_NAMES = [
         "actor_l1",
@@ -547,12 +426,9 @@ class AVG:
         model = {
             "actor": self.actor.state_dict(),
             "critic": self.Q.state_dict(),
-            "critic_extra": [qk.state_dict() for qk in self.Q_extra],
             "policy_opt": self.popt.state_dict(),
             "critic_opt": self.qopt.state_dict(),
             "obs_rms": ckpt.obs_rms_state(env) if env is not None else None,
-            "proposal": self.proposal.state_dict() if self.proposal is not None else None,
-            "greedy": self.greedy,
         }
         torch.save(model, "%s/%s.pt" % (model_dir, unique_str))
 
@@ -959,26 +835,6 @@ def get_parser(add_help=True):
         default=False,
         help="Reset the scaler's return accumulator G only on termination, as in the original code (default: also on truncation)",
     )
-    # Greedy AC (Neumann et al. 2023) actor update; also available at a switch as the greedy_ac on_shift action
-    parser.add_argument(
-        "--greedy_ac",
-        default=None,
-        type=float,
-        nargs=2,
-        metavar=("N", "RHO"),
-        help="From step 0, replace the actor update with Greedy AC: sample N actions from the proposal policy, keep the top RHO fraction (0 < RHO <= 1) by Q, maximum-likelihood actor update",
-    )
-    parser.add_argument("--proposal_entropy", default=None, type=float, help="Entropy coefficient of the proposal policy (default: alpha)")
-    parser.add_argument("--proposal_std", default=None, type=float, help="Start the proposal with this constant pre-tanh std instead of a copy of the actor's")
-    parser.add_argument("--greedy_soft_critic", action="store_true", default=False, help="Under Greedy AC, keep AVG's entropy term in the critic target (default: plain Sarsa, as in the paper)")
-    parser.add_argument("--best_of", default=None, type=int, metavar="N", help="Execution-only control: act with the best of N actor samples by Q, learning unchanged")
-    parser.add_argument("--greedy_fit", default="full", choices=("full", "mean"), help="Greedy AC actor fit: full (mean and std, the paper) or mean (std keeps AVG's soft update)")
-    parser.add_argument("--greedy_max_logstd", default=None, type=float, help="Under Greedy AC, cap the actor's log-std at this value (default: the actor's +2)")
-    parser.add_argument("--proposal_max_logstd", default=None, type=float, help="Cap the proposal policy's log-std at this value (default: +2)")
-    parser.add_argument("--n_critics", default=1, type=int, help="Critic ensemble size (1 = AVG's single critic)")
-    parser.add_argument("--greedy_pessimism", default=0.0, type=float, help="Rank Greedy AC / best-of-N candidates by mean Q minus this many ensemble stds")
-    parser.add_argument("--greedy_entropy_reg", default=None, type=float, help="Under Greedy AC, keep alpha*logpi on the actor loss with this coefficient (e.g. the env's alpha)")
-    parser.add_argument("--proposal_local_std", default=None, type=float, help="Under Greedy AC, draw candidates around the actor's mean with this fixed pre-tanh std instead of from the proposal policy")
     # Levers (see incremental_rl/levers.py)
     parser.add_argument(
         "--on_shift",
@@ -1109,10 +965,6 @@ if __name__ == "__main__":
         args.algo = "avg_scaled_variant"
     if args.legacy_g_reset:
         args.algo += "_legacyG"
-    if args.greedy_ac:
-        args.algo += "_gac"
-    if args.best_of:
-        args.algo += f"_best{args.best_of}"
     print(args.algo)
 
     # Start experiment

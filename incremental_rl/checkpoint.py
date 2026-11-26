@@ -58,12 +58,8 @@ def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_i
         "extra": extra or {},
         "agent": {
             "actor": agent.actor.state_dict(), "critic": agent.Q.state_dict(),
-            "critic_extra": [qk.state_dict() for qk in agent.Q_extra], "qopt_extra": [o.state_dict() for o in agent.qopt_extra],
             "popt": agent.popt.state_dict(), "qopt": agent.qopt.state_dict(),
             "steps": agent.steps, "G": agent.G,
-            "proposal": agent.proposal.state_dict() if agent.proposal is not None else None,
-            "popt2": agent.popt2.state_dict() if agent.popt2 is not None else None,
-            "greedy": agent.greedy, "best_of": agent.best_of,
             "td_scaler": {k: {"n": getattr(scaler, k).n, "m": getattr(scaler, k).m, "s": getattr(scaler, k).s}
                           for k in SCALER_STATS},
         },
@@ -98,20 +94,7 @@ def restore(state, agent, env):
     agent.Q.load_state_dict(a["critic"])
     agent.popt.load_state_dict(a["popt"])
     agent.qopt.load_state_dict(a["qopt"])
-    for qk, sd in zip(agent.Q_extra, a.get("critic_extra", [])):
-        qk.load_state_dict(sd)
-    for o, sd in zip(agent.qopt_extra, a.get("qopt_extra", [])):
-        o.load_state_dict(sd)
     agent.steps, agent.G = a["steps"], a["G"]
-    if a.get("proposal") is not None:  # Greedy AC state: proposal policy, its optimizer, and whether the update is on
-        g = a["greedy"] or {"n": 1, "k": 1, "tau": agent.alpha, "hard": True}
-        agent.enable_greedy(g["n"], g["k"] / g["n"], g["tau"], g["hard"], reinit=False, fit=g.get("fit", "full"),
-                            max_logstd=g.get("max_logstd"), proposal_max_logstd=g.get("proposal_max_logstd"),
-                            entropy_reg=g.get("entropy_reg"), local_std=g.get("local_std"))
-        agent.greedy = a["greedy"]
-        agent.proposal.load_state_dict(a["proposal"])
-        agent.popt2.load_state_dict(a["popt2"])
-    agent.best_of = a.get("best_of")
     for k, d in a["td_scaler"].items():
         rs = getattr(agent.td_error_scaler, k)
         rs.n, rs.m, rs.s = d["n"], d["m"], d["s"]

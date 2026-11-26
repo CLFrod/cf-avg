@@ -51,12 +51,6 @@ METHODS_BATCH2 = [  # the privileged methods, numbered as in the Shift Recovery 
     ("P9_obs_track_offset", "24", "Previous-run normalizer + entropy tracking + reward offset"),
     ("P10_obs_track_adam", "25", "Previous-run normalizer + entropy tracking + optimizer reset"),
 ]
-METHODS_BATCH3 = [  # Greedy AVG study (Greedy AC actor update from step 0, legacy G reset)
-    ("GAC", "26", "Greedy AVG"),
-    ("GACx_obs_soft", "27", "Greedy AVG + observation normaliser soft reset"),
-    ("GACx_obs_window", "28", "Greedy AVG + observation normaliser window"),
-    ("GACx_priv_obs", "29", "Greedy AVG + observation normalizer values from previous runs"),
-]
 REF_LABEL = {"legacy": "base run (legacy G reset)", "fix": "base run (G-truncation fix)"}
 VARIANT_COLOR = "#2a78d6"
 
@@ -79,9 +73,9 @@ def main():
     p.add_argument("--cache", default="results_trillium/lever_results/analysis/cache")
     p.add_argument("--out", default="results_trillium/lever_results/analysis/variants")
     p.add_argument("--base", default="fix", help="Paired base condition (green); the other of fix/legacy is drawn in red if present")
-    p.add_argument("--batch", type=int, default=1, choices=(1, 2, 3), help="1: the batch-1 methods and stacks; 2: the privileged methods; 3: the Greedy AVG study")
+    p.add_argument("--batch", type=int, default=1, choices=(1, 2), help="1: the batch-1 methods and stacks; 2: the privileged methods")
     args = p.parse_args()
-    lists = {1: METHODS, 2: METHODS_BATCH2, 3: METHODS_BATCH3}
+    lists = {1: METHODS, 2: METHODS_BATCH2}
     methods = [(c, (f"{n:02d}" if isinstance(n, int) else n), name) for c, n, name in lists[args.batch]]
     other = "legacy" if args.base == "fix" else "fix"
     refs = [(other, REF_LABEL[other], "#e34948", ":"), (args.base, REF_LABEL[args.base], "#1baf7a", "-")]

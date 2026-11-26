@@ -13,16 +13,18 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
-RUN_RE = re.compile(r"^(?P<cond>.+?)-(?P<shift>gear2x|heavy|limb_heavy|moon|slippery|moon_back)-(?P<env>Hopper-v4|Ant-v4|Humanoid-v4)-(?P<seed>\d+)-\d{8}_\d{6}$")
+SHIFTS = ("gear2x|heavy|limb_heavy|moon|slippery|moon_back|none|stiff|loose|all_flipped|payload|heavy_object|weak_joint|dead_joint|"
+          "flipped_joint|stiff_springs|rotor")
+RUN_RE = re.compile(rf"^(?P<cond>.+?)-(?P<shift>{SHIFTS})-(?P<env>[A-Za-z0-9]+-v\d+|dmc-[a-z]+-[a-z]+)-(?P<seed>\d+)-\d{{8}}_\d{{6}}$")
 TICK, WIN = 10_000, 50_000
 BASE = "fix"  # the paired reference condition; --base legacy for a batch run without the G-truncation fix
 DTICK = 1_000
-COLS = ["return", "ep_len", "td_error", "td_signed", "td_abs_raw", "td_sigma", "critic_loss", "actor_loss", "entropy", "greedy_on", "top_q_gap", "top_sat", "proposal_entropy", "best_of_on", "actor_loss_q",
+COLS = ["return", "ep_len", "td_error", "td_signed", "td_abs_raw", "td_sigma", "critic_loss", "actor_loss", "entropy", "actor_loss_q",
         "actor_grad_norm", "critic_grad_norm", "dq_da_norm", "actor_update_ratio", "critic_update_ratio",
         "actor_weight_norm", "critic_weight_norm", "scaler_G_count", "scaler_G2_mean", "scaler_reward_var", "obs_count",
         "obs_mean_drift", "obs_var_drift", "lr_mult_actor", "lr_mult_critic", "mod_action"]
 DENSE_COLS = ["reward", "td_signed", "td_sigma", "actor_grad_norm", "critic_grad_norm", "dq_da_norm",
-              "actor_update_ratio", "critic_update_ratio", "entropy", "top_q_gap", "proposal_entropy", "terminated"]
+              "actor_update_ratio", "critic_update_ratio", "entropy", "terminated"]
 BATCH1_GROUPS = {
     "Statistics levers": ["L02_shrink_obs", "L02_hard_obs", "L03_cap_obs", "L04_shrink_scaler", "L05_cap_scaler", "L06_warm_start"],
     "Optimiser & step-size levers": ["L07_reset_adam", "L08_critic_x3", "L08_critic_x10", "L09_actor_freeze", "L10_actor_delayed", "L11_adaptive", "L12_beta2"],
@@ -32,11 +34,7 @@ BATCH2_GROUPS = {
     "Privileged singles": ["L02_shrink_obs", "P1_alpha_x0.1", "P1_alpha_x0.3", "P2_alpha_track", "P3_reward_offset", "P4_priv_obs"],
     "Stacks on privileged obs stats": ["P5_obs_alpha", "P6_obs_track", "P7_obs_offset", "P8_obs_alpha_offset", "P9_obs_track_offset", "P10_obs_track_adam"],
 }
-BATCH3_GROUPS = {
-    "Greedy AVG": ["GAC", "GACscratch"],
-    "Greedy AVG + recovery methods": ["GACx_obs_soft", "GACx_obs_window", "GACx_priv_obs"],
-}
-BATCH_KEYS = [(BATCH3_GROUPS, ["GAC", "GACx_obs_soft"]), (BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
+BATCH_KEYS = [(BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
 ORDER = [c for g in GROUPS.values() for c in g]
 

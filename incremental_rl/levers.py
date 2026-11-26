@@ -1,4 +1,4 @@
-"""On-shift levers: statistics resets, optimiser resets, step-size schedules and update-rule switches fired at a physics switch"""
+"""On-shift levers: statistics resets, optimiser resets and step-size schedules fired at a physics switch"""
 import glob, math, os
 import torch
 from gymnasium.wrappers import NormalizeObservation
@@ -6,7 +6,7 @@ from incremental_rl import checkpoint as ckpt
 from incremental_rl import layout
 
 ACTIONS = ("shrink_obs_norm", "shrink_td_scaler", "load_stats", "reset_adam", "lr_boost", "set_beta2",
-           "set_alpha", "alpha_track", "reward_offset", "greedy_ac", "best_of")
+           "set_alpha", "alpha_track", "reward_offset")
 
 
 class CappedNormalizeObservation(NormalizeObservation):
@@ -53,10 +53,8 @@ class Levers:
         self.alpha_actions = [a for a in self.actions if a["action"] == "set_alpha"]
         self.track_actions = [a for a in self.actions if a["action"] == "alpha_track"]
         self.offset_actions = [a for a in self.actions if a["action"] == "reward_offset"]
-        self.greedy_actions = [a for a in self.actions if a["action"] in ("greedy_ac", "best_of")]
         self.adaptive = cfg.adaptive_lr  # (short window, long window, k_max)
-        self.scheduled = bool(self.lr_actions or self.beta2_actions or self.adaptive or self.alpha_actions or self.track_actions
-                              or any("steps" in a for a in self.greedy_actions))
+        self.scheduled = bool(self.lr_actions or self.beta2_actions or self.adaptive or self.alpha_actions or self.track_actions)
         self.fired = []
         self.opts = {"actor": agent.popt, "critic": agent.qopt}
         self.base_lr = {"actor": cfg.actor_lr, "critic": cfg.critic_lr}
@@ -67,8 +65,6 @@ class Levers:
         self.base_alpha = agent.alpha
         self.alpha_mult = 1.0
         self.track = {"mult": 1.0, "h": 0.0, "n": 0}  # entropy-tracking multiplier and its entropy average
-        self.greedy_until = None  # step at which a timed greedy_ac window switches the AVG update back on
-        self.best_until = None  # same for a timed best_of window
         self._reset_stats()
 
     def on_shift(self, step):
@@ -124,18 +120,6 @@ class Levers:
     def act_reward_offset(self, a):
         pass  # schedule, read in reward_offset()
 
-    def act_greedy_ac(self, a):
-        """Switch the actor update to Greedy AC from this switch on (or for `steps` steps)"""
-        self.agent.enable_greedy(int(a.get("N", 30)), float(a.get("rho", 0.1)), a.get("tau"), not a.get("soft_critic", False), a.get("proposal_std"),
-                                 fit=a.get("fit", "full"), max_logstd=a.get("max_logstd"), proposal_max_logstd=a.get("proposal_max_logstd"),
-                                 entropy_reg=a.get("entropy_reg"), local_std=a.get("local_std"))
-        self.greedy_until = self.fired[-1] + a["steps"] if "steps" in a else None
-
-    def act_best_of(self, a):
-        """Act with the best of N actor samples by Q from this switch on (or for `steps` steps); learning unchanged"""
-        self.agent.best_of = int(a.get("N", 30))
-        self.best_until = self.fired[-1] + a["steps"] if "steps" in a else None
-
     def reward_offset(self, t):
         """Constant added to the reward the agent learns from at step t (decays to 0 over `steps`); the logged return is unchanged"""
         c = 0.0
@@ -155,12 +139,6 @@ class Levers:
             return
         if self.adaptive:
             self._update_ema(self.agent.last_td_abs)
-        if self.greedy_until is not None and t >= self.greedy_until:
-            self.agent.disable_greedy()
-            self.greedy_until = None
-        if self.best_until is not None and t >= self.best_until:
-            self.agent.best_of = None
-            self.best_until = None
         for net in ("actor", "critic"):
             m = self._boost(net, t, self.lr_actions) * self._adaptive_mult()
             if m != self.mult[net]:
@@ -251,13 +229,11 @@ class Levers:
 
     def state(self):
         return {"fired": list(self.fired), "mult": dict(self.mult), "cur_b2": self.cur_b2, "ema": dict(self.ema),
-                "alpha_mult": self.alpha_mult, "track": dict(self.track), "greedy_until": self.greedy_until,
-                "best_until": self.best_until}
+                "alpha_mult": self.alpha_mult, "track": dict(self.track)}
 
     def load(self, state):
         if state is None:
             return
         self.fired, self.mult, self.cur_b2, self.ema = state["fired"], state["mult"], state["cur_b2"], state["ema"]
         self.alpha_mult, self.track = state.get("alpha_mult", 1.0), state.get("track", self.track)
-        self.greedy_until, self.best_until = state.get("greedy_until"), state.get("best_until")
         self.agent.alpha = self.base_alpha * self.alpha_mult
