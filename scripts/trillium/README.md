@@ -12,6 +12,7 @@ runs **188 runs at once, one pinned core each** (4 cores reserved for the launch
 | `submit.sh` | submit the job (from anywhere; puts the job directory on scratch) |
 | `avg_multi.sh` | the Slurm job script: loads modules, checks rendering, launches the experiment |
 | `submit_sweep.sh` | submit hyperparameter sweeps, one job per `configs/sweep/sweep_*.json` |
+| `submit_study.sh` | submit the shift study, one job per `configs/shift_study/study_*.json` |
 
 ## 1. Setup (login node, once)
 
