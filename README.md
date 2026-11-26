@@ -49,7 +49,7 @@ python avg.py --env "Humanoid-v4" --N 10001000
 
 ## Experiments: many runs, modified environments, Trillium
 
-- `incremental_rl/avg_ablation.py` — one AVG run. Logs every episode to `metrics.csv`, checkpoints for `--resume`,
+- `incremental_rl/avg_ablation.py` — one AVG run. Logs every episode to `metrics.csv` (gzipped when the run stops), checkpoints for `--resume`,
   records videos, and takes environment modifications (`--env_kwargs`, `--env_mods`, `--schedule`).
 - `incremental_rl/avg_multi_experiment.py` — many runs in parallel (one pinned core each) from a JSON config of
   experiments × environments × seeds: `configs/trillium_dynamics_3env_24m.json` is the main experiment,

@@ -26,7 +26,8 @@ executing at once is however many blocks fit, after setting aside --reserve_core
 Jobs are queued round-robin over experiments, so every experiment makes progress when there are more
 runs than cores.
 
-Results: <results_dir>/<experiment name>-<env>-<seed>-<launch time>/ per run.
+Results: <results_dir>/runs/<experiment name>-<env>-<seed>-<launch time>/ per run, with its checkpoint.pt, models,
+videos and learning curve in <results_dir>/artifacts/<same name>/ (see layout.py).
 """
 
 import os, sys, glob
@@ -36,7 +37,7 @@ import subprocess
 import numpy as np
 from datetime import datetime
 from incremental_rl.avg_ablation import get_parser
-from incremental_rl import env_mods, checkpoint
+from incremental_rl import env_mods, checkpoint, layout
 
 
 def add_launcher_args(parser):
@@ -295,7 +296,9 @@ def resume_jobs(patterns, cli_overrides, full_parser):
     """Jobs that continue existing run folders (launched by this script) from their checkpoints"""
     validator = get_parser(add_help=False)
     validator.exit_on_error = False
-    dirs = sorted(d for p in patterns for d in glob.glob(p) if os.path.isdir(d))
+    # a pattern may name the run folders or sit one level up: <results>/<name>* also finds <results>/runs/<name>*
+    found = [d for p in patterns for d in glob.glob(p) + glob.glob(os.path.join(os.path.dirname(p), layout.RUNS, os.path.basename(p)))]
+    dirs = sorted(d for d in set(found) if os.path.isdir(d) and os.path.basename(d) not in (layout.RUNS, layout.ARTIFACTS))
     if not dirs:
         full_parser.error(f"--resume_from: no run folders match {patterns}")
     jobs, skipped = [], []
@@ -424,13 +427,13 @@ def main():
         describe(args.jobs)
         return
 
-    # One folder per run: results/<experiment>-<env>-<seed>-<date>/. All runs in a launch share the same date stamp
+    # One folder per run: results/runs/<experiment>-<env>-<seed>-<date>/. All runs in a launch share the same date stamp
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     for job in args.jobs:
         if "resume_step" in job:  # continuing an existing folder: keep its files
             continue
         job["run_dir"] = os.path.join(
-            args.results_dir, f"{job['name']}-{job['hyp']['env']}-{job['seed']}-{stamp}"
+            args.results_dir, layout.RUNS, f"{job['name']}-{job['hyp']['env']}-{job['seed']}-{stamp}"
         )
         os.makedirs(job["run_dir"], exist_ok=True)
         with open(os.path.join(job["run_dir"], "multi_experiment.json"), "w") as f:
@@ -453,7 +456,7 @@ def main():
     )
     print(
         f"Launching {len(args.jobs)} runs ({args.n_workers} at a time) -> "
-        f"{os.path.join(args.results_dir, f'<experiment>-<env>-<seed>-{stamp}')}"
+        f"{os.path.join(args.results_dir, layout.RUNS, f'<experiment>-<env>-<seed>-{stamp}')}"
     )
     describe(args.jobs)
 

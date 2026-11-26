@@ -4,6 +4,7 @@ import csv, time
 import numpy as np
 from datetime import datetime
 from incremental_rl.utils import learning_curve, save_args, save_returns, get_git_hash
+from incremental_rl import layout
 from gymnasium import Env
 
 
@@ -14,7 +15,8 @@ class ExperimentTracker:
         #### Unique IDs (a resumed run keeps its original id, so its files are continued rather than recreated)
         self.resumed = run_id is not None
         self.run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S") + f"-{args.algo}-{args.env}_seed-{args.seed}"
-        self.lc_path = f"{args.results_dir}/{self.run_id}_learning_curve.png"
+        self.artifacts_dir = layout.artifacts_dir(args.results_dir)
+        self.lc_path = f"{self.artifacts_dir}/{self.run_id}_learning_curve.png"
         self.rets_path = f"{args.results_dir}/{self.run_id}_returns.txt"
         self.args_path = f"{args.results_dir}/{self.run_id}_args.json"
         self.metrics_path = f"{args.results_dir}/{self.run_id}_metrics.csv"
@@ -28,6 +30,7 @@ class ExperimentTracker:
 
         if not self.args.do_not_save:
             os.makedirs(args.results_dir, exist_ok=True)
+            os.makedirs(self.artifacts_dir, exist_ok=True)
             save_args(args, self.args_path)
             self.step_on_save = 0
 
@@ -36,6 +39,8 @@ class ExperimentTracker:
         if self.args.do_not_save:
             return
         if self._metrics_writer is None:
+            if self.resumed:
+                layout.gunzip_file(self.metrics_path)
             append = self.resumed and os.path.exists(self.metrics_path)
             self._metrics_file = open(self.metrics_path, 'a' if append else 'w', newline='')
             self._metrics_writer = csv.DictWriter(self._metrics_file, fieldnames=list(row.keys()))
@@ -54,6 +59,7 @@ class ExperimentTracker:
     def finish(self, rets, ep_lens):
         if self._metrics_file is not None:
             self._metrics_file.close()
+            layout.gzip_file(self.metrics_path)
         if not self.args.do_not_save and rets:
             self._save_curve(rets, ep_lens)
 

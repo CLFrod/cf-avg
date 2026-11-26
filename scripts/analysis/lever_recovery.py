@@ -6,7 +6,7 @@ Writes recovery_metrics.csv (one row per run), recovery_summary.csv (per conditi
 summary.md, heatmaps across all env/shift pairs, recovery curves and recovery-time plots per env/shift, and a
 diagnostics grid per condition. --dense adds per-step plots of the first 100k steps after the switch.
 """
-import argparse, csv, glob, json, os, re
+import argparse, csv, glob, gzip, json, os, re
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -71,6 +71,8 @@ def color_of(cond):
 
 def discover(root):
     runs = {}
+    if os.path.isdir(os.path.join(root, "runs")):  # split layout: <root>/runs/<run>/
+        root = os.path.join(root, "runs")
     for d in sorted(glob.glob(os.path.join(root, "*"))):
         m = RUN_RE.match(os.path.basename(d))
         if m and os.path.exists(os.path.join(d, "checkpoint.json")):
@@ -79,8 +81,14 @@ def discover(root):
     return runs
 
 
+def find(folder, suffix):
+    """The run's *<suffix> file, plain or gzipped, or None"""
+    files = sorted(glob.glob(os.path.join(folder, f"*{suffix}"))) or sorted(glob.glob(os.path.join(folder, f"*{suffix}.gz")))
+    return files[0] if files else None
+
+
 def read_csv(path):
-    with open(path) as f:
+    with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as f:
         names = f.readline().strip().split(",")
     return names, np.loadtxt(path, delimiter=",", skiprows=1, ndmin=2)
 
@@ -108,7 +116,7 @@ def load_run(folder, cache_dir):
         return {k: z[k] for k in z.files}
     meta = json.load(open(os.path.join(folder, "checkpoint.json")))
     N = int(meta["N"])
-    names, mat = read_csv(glob.glob(os.path.join(folder, "*_metrics.csv"))[0])
+    names, mat = read_csv(find(folder, "_metrics.csv"))
     mat = mat[mat[:, names.index("partial")] == 0]
     nb = N // TICK
     cur = window_means(mat[:, names.index("step")], mat, names, COLS, 0, nb, TICK, WIN // TICK)
@@ -123,10 +131,10 @@ def load_dense(folder, S, cache_dir):
     if os.path.exists(cache):
         z = np.load(cache)
         return {k: z[k] for k in z.files}
-    files = glob.glob(os.path.join(folder, "*_dense.csv"))
-    if not files:
+    path = find(folder, "_dense.csv")
+    if path is None:
         return None
-    names, mat = read_csv(files[0])
+    names, mat = read_csv(path)
     names.append("td_abs")
     mat = np.c_[mat, np.abs(mat[:, names.index("td_signed")])]
     lo, nb = S - 20_000, 220

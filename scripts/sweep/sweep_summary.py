@@ -17,8 +17,8 @@ if __name__ == "__main__":
     p.add_argument("--top", default=None, type=int, help="Only the best N draws per env")
     args = p.parse_args()
     draws = {}
-    # run folders sit in <root>/<env>/ (or directly in <root>)
-    for d in sorted(glob.glob(os.path.join(args.root, "h*-*")) + glob.glob(os.path.join(args.root, "*", "h*-*"))):
+    # run folders sit in <root>/<env>/runs/ (or <root>/<env>/, <root>/runs/, <root>/)
+    for d in sorted(d for sub in (("",), ("runs",), ("*",), ("*", "runs")) for d in glob.glob(os.path.join(args.root, *sub, "h*-*"))):
         if not os.path.isfile(os.path.join(d, "multi_experiment.json")):
             continue
         meta = json.load(open(os.path.join(d, "multi_experiment.json")))

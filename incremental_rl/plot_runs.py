@@ -1,13 +1,13 @@
 """
-Plot per-episode metrics (from <run_id>_metrics.csv) against steps, aggregated over seeds.
+Plot per-episode metrics (from <run_id>_metrics.csv or .csv.gz) against steps, aggregated over seeds.
 
 Each positional argument is a group of runs: a glob over run folders or metrics files, optionally
 prefixed with a label. Every group is drawn as mean +- std across its runs, one subplot per metric,
 using the same trailing-window binning as the per-run learning curve.
 
 Examples:
-    python -m incremental_rl.plot_runs "results/moon_earth-*"
-    python -m incremental_rl.plot_runs "moon=results/moon_earth-*" "earth=results/baseline-*" \\
+    python -m incremental_rl.plot_runs "results/runs/moon_earth-*"
+    python -m incremental_rl.plot_runs "moon=results/runs/moon_earth-*" "earth=results/runs/baseline-*" \\
         --metrics return critic_loss entropy actor_grad_norm --vlines 6000000 --out compare.png
 """
 import os, csv, glob
@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from incremental_rl.utils import binned_curve
+from incremental_rl import layout
 
 DEFAULT_METRICS = ['return', 'ep_len', 'actor_loss', 'critic_loss', 'td_error', 'entropy', 'mod_action',
                    'actor_grad_norm', 'critic_grad_norm', 'actor_weight_norm', 'critic_weight_norm', 'steps_per_sec']
@@ -38,15 +39,16 @@ def find_metrics_files(pattern):
     files = []
     for path in sorted(glob.glob(pattern)):
         if os.path.isdir(path):
-            files += sorted(glob.glob(os.path.join(path, "*_metrics.csv")))
-        elif path.endswith(".csv"):
+            f = layout.find(path, "_metrics.csv")
+            files += [f] if f else []
+        elif path.endswith((".csv", ".csv.gz")):
             files.append(path)
     return files
 
 
 def load_run(path, include_partial):
     """ metrics.csv -> structured array (one field per column). csv module rather than np.genfromtxt, which renames 'return' """
-    with open(path, newline='') as f:
+    with layout.open_text(path) as f:
         reader = csv.reader(f)
         names = next(reader)
         rows = [[float(v) for v in r] for r in reader if r]

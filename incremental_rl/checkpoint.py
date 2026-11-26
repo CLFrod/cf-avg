@@ -1,8 +1,8 @@
 """
 Resume support for avg_ablation: everything needed to continue a run from an episode boundary.
 
-A run folder gets `checkpoint.pt` (torch.save of the full state, overwritten each time) and `checkpoint.json`
-(step / N / episode / wall time, readable without torch). Saved every --checkpoint steps at the next episode
+A run gets `checkpoint.pt` (torch.save of the full state, overwritten each time; in the run's artifacts folder,
+see layout.py) and `checkpoint.json` (step / N / episode / wall time, readable without torch; in the run folder). Saved every --checkpoint steps at the next episode
 end, when --time_limit stops the run, and at the end of the run (so a finished run can also be extended with
 a larger --N).
 
@@ -15,6 +15,7 @@ import os, json, time
 import numpy as np
 import torch
 from gymnasium.wrappers import NormalizeObservation
+from incremental_rl.layout import artifacts_dir
 
 CKPT_FILE, META_FILE = "checkpoint.pt", "checkpoint.json"
 SCALER_STATS = ("gamma_rms", "return_sq_rms", "reward_rms", "return_rms")
@@ -74,7 +75,8 @@ def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_i
         },
         "rets": list(rets), "ep_steps": list(ep_steps),
     }
-    path = os.path.join(run_dir, CKPT_FILE)
+    os.makedirs(artifacts_dir(run_dir), exist_ok=True)
+    path = os.path.join(artifacts_dir(run_dir), CKPT_FILE)
     torch.save(state, path + ".tmp")
     os.replace(path + ".tmp", path)          # atomic: a kill mid-write leaves the previous checkpoint intact
     with open(meta_path(run_dir), "w") as f:
@@ -83,7 +85,7 @@ def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_i
 
 
 def load(run_dir):
-    path = os.path.join(run_dir, CKPT_FILE)
+    path = os.path.join(artifacts_dir(run_dir), CKPT_FILE)
     if not os.path.exists(path):
         raise FileNotFoundError(f"no {CKPT_FILE} in {run_dir}")
     return torch.load(path, weights_only=False)

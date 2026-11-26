@@ -70,13 +70,19 @@ after pulling, since `uv.lock` changed).
 squeue -u $USER                                        # PD waiting, R running
 head -70 $SCRATCH/avg_jobs/avg_multi_<jobid>.out       # python path, "OSMesa render OK", the plan, [start] lines
 jobperf <jobid>                                        # ~186 busy cores
-grep -h '"step"' $SCRATCH/results/*/checkpoint.json | sort | uniq -c   # progress of every run
+grep -h '"step"' $SCRATCH/results/runs/*/checkpoint.json | sort | uniq -c   # progress of every run
 ```
 
-Each run folder `$SCRATCH/results/<name>-<env>-<seed>-<date>/` holds `metrics.csv` (one row per episode,
-flushed as written), `run.log`, `checkpoint.pt/json`, the learning-curve PNG, `<run_id>_video_<step>.mp4`, and
-`<run_id>_model_<step>.pt` snapshots every 1M steps (actor, critic, optimizers, observation normaliser).
-`step / wall_time` in `checkpoint.json` is the run's real throughput.
+A results folder is split in two, so the part analysis reads can be copied on its own:
+
+- `$SCRATCH/results/runs/<name>-<env>-<seed>-<date>/`: `metrics.csv` (one row per episode, flushed as written),
+  `dense.csv`, `returns.txt`, `args.json`, `run.log`, `checkpoint.json`. Both CSVs are gzipped (`.csv.gz`) when the
+  run stops; a resumed run unpacks them and appends.
+- `$SCRATCH/results/artifacts/<same name>/`: `checkpoint.pt`, the learning-curve PNG, `<run_id>_video_<step>.mp4`,
+  and `<run_id>_model_<step>.pt` snapshots every 1M steps (actor, critic, optimizers, observation normaliser).
+
+`step / wall_time` in `checkpoint.json` is the run's real throughput. Results written before this split keep
+everything in one folder per run; the analysis scripts and `--resume_from` read both.
 
 ## 5. Resume
 
@@ -89,7 +95,7 @@ resume job override the stored ones, so a finished run can also be extended (`RU
 
 ```bash
 # mean +- std over seeds, one panel per metric; `label=glob` groups overlay
-python -m incremental_rl.plot_runs "base=$SCRATCH/results/base-Ant-v4-*" "moon=$SCRATCH/results/moon-Ant-v4-*" \
+python -m incremental_rl.plot_runs "base=$SCRATCH/results/runs/base-Ant-v4-*" "moon=$SCRATCH/results/runs/moon-Ant-v4-*" \
     --vlines 6000000 --out ant_moon.png
 ```
 
@@ -103,7 +109,8 @@ Works on partial data while a job runs. The `steps_per_sec` panel shows whether 
 | on compute nodes | read-only | read/write | read-only |
 | backed up | yes | **no** (purgeable) | yes, shared with the group |
 
-Copy finished run folders (minus `checkpoint.pt` if you like) to `$PROJECT` when a batch is done.
+Copy `runs/` (and `artifacts/` if the models and videos are worth keeping) to `$PROJECT` when a batch is done.
+To analyse locally, `runs/` alone is enough.
 
 ## Notes
 

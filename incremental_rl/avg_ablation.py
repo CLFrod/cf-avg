@@ -27,6 +27,7 @@ from incremental_rl.env_mods import (
     describe as describe_env,
 )
 from incremental_rl import checkpoint as ckpt
+from incremental_rl import layout
 from incremental_rl.levers import Levers, CappedNormalizeObservation
 
 # Skip torch.distributions' per-call argument validation
@@ -163,7 +164,7 @@ class ObsNormDrift:
 
 
 class DenseLog:
-    """Per-step rows inside --dense_window around each physics switch, in <run_id>_dense.csv"""
+    """Per-step rows inside --dense_window around each physics switch, in <run_id>_dense.csv (gzipped on close)"""
 
     def __init__(self, args, expt, windows):
         self.windows = windows
@@ -185,6 +186,7 @@ class DenseLog:
             **stats,
         }
         if self.writer is None:
+            layout.gunzip_file(self.path)
             append = os.path.exists(self.path)
             self.file = open(self.path, "a" if append else "w", newline="")
             self.writer = csv.DictWriter(self.file, fieldnames=list(row))
@@ -195,6 +197,12 @@ class DenseLog:
     def flush(self):
         if self.file:
             self.file.flush()
+
+    def close(self):
+        if self.file:
+            self.file.close()
+            self.file = self.writer = None
+            layout.gzip_file(self.path)
 
 
 class AVG:
@@ -582,7 +590,7 @@ def make_video_recorder(args, train_env, agent, schedule, expt):
                 eval_norm.obs_rms.mean[:] = train_norm.obs_rms.mean
                 eval_norm.obs_rms.var[:] = train_norm.obs_rms.var
                 eval_norm.obs_rms.count = train_norm.obs_rms.count
-            fname = f"{args.results_dir}/{expt.run_id}_video_{human_format_numbers(step)}.mp4"
+            fname = f"{expt.artifacts_dir}/{expt.run_id}_video_{human_format_numbers(step)}.mp4"
             print(f"[video] step {step}: recording {args.n_eval} episode(s) -> {fname}")
             record_video(e, agent, num_episodes=args.n_eval, video_filename=fname)
         except Exception as ex:
@@ -669,7 +677,7 @@ def main(args):
         name=expt.exp_name,
         entity="gauthamv",
         mode=args.wandb_mode,
-        dir=f"{args.results_dir}",
+        dir=expt.artifacts_dir,
     )
 
     # Videos every --video_every steps, at each physics switch, and at the end
@@ -752,7 +760,7 @@ def main(args):
                 and t > 0
             ):
                 agent.save(
-                    model_dir=args.results_dir,
+                    model_dir=expt.artifacts_dir,
                     unique_str=f"{expt.run_id}_model_{human_format_numbers(t)}",
                     env=env,
                 )
@@ -845,7 +853,7 @@ def main(args):
         )
 
     # Save returns and learning curve before exiting run
-    dense.flush()
+    dense.close()
     expt.finish(rets, ep_steps)
     if not args.do_not_save and not stopped_early:
         # Final checkpoint; marks the run complete and allows extending it with a larger --N
@@ -866,7 +874,7 @@ def main(args):
 
     if args.save_model:
         agent.save(
-            model_dir=args.results_dir, unique_str=f"{expt.run_id}_model", env=env
+            model_dir=expt.artifacts_dir, unique_str=f"{expt.run_id}_model", env=env
         )
 
     print("Run with id: {} took {:.3f}s!".format(expt.run_id, time.time() - tic))
@@ -1043,7 +1051,7 @@ def get_parser(add_help=True):
         "--resume",
         default="",
         type=str,
-        help="Run folder with a checkpoint.pt to continue from (keeps its run id and metrics.csv)",
+        help="Run folder to continue from its checkpoint (keeps its run id and metrics.csv)",
     )
     parser.add_argument(
         "--time_limit",

@@ -37,23 +37,23 @@ step "2/3 every condition once (3 at a time)"
 python -m incremental_rl.avg_multi_experiment --config "$CONFIG" --results_dir "$OUT" --n_workers 3 2>/dev/null \
     | grep -E "^\[FAILED|finished in" || true
 
-LAST=$(ls -d "$OUT"/*-gear2x-Hopper-v4-* | grep -v -E "/(fix|scratch|legacy)-" | tail -1)
+LAST=$(ls -d "$OUT"/runs/*-gear2x-Hopper-v4-* | grep -v -E "/(fix|scratch|legacy)-" | tail -1)
 step "3/3 resume $(basename "$LAST") by 1500 steps"
 python -m incremental_rl.avg_multi_experiment --resume_from "$LAST" --results_dir "$OUT" --N 4500 2>/dev/null \
     | grep -E "resume from|^\[(done|FAILED)" || true
 
 step "summary"
 python - "$OUT" <<'EOF'
-import sys, os, csv, glob, json
+import sys, os, csv, glob, gzip, json
 out = sys.argv[1]
 ok = True
-for d in sorted(glob.glob(f"{out}/*-gear2x-Hopper-v4-*")):
+for d in sorted(glob.glob(f"{out}/runs/*-gear2x-Hopper-v4-*")):
     name = os.path.basename(d).split("-gear2x")[0]
     meta = json.load(open(f"{d}/checkpoint.json"))
-    rows = list(csv.DictReader(open(glob.glob(f"{d}/*_metrics.csv")[0])))
+    rows = list(csv.DictReader(gzip.open(glob.glob(f"{d}/*_metrics.csv.gz")[0], "rt", newline="")))
     log = open(f"{d}/run.log").read()
     fired = "[levers] step 1500" in log
-    dense = bool(glob.glob(f"{d}/*_dense.csv"))
+    dense = bool(glob.glob(f"{d}/*_dense.csv.gz"))
     want = name != "scratch"  # the from-scratch run has no switch, so no hook and no dense window
     actions = json.load(open(f"{d}/multi_experiment.json"))["hyperparams"]["on_shift"]
     loaded = not any(a["action"] == "load_stats" for a in actions) or "'load_stats'" in log

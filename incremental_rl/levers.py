@@ -3,6 +3,7 @@ import glob, math, os
 import torch
 from gymnasium.wrappers import NormalizeObservation
 from incremental_rl import checkpoint as ckpt
+from incremental_rl import layout
 
 ACTIONS = ("shrink_obs_norm", "shrink_td_scaler", "load_stats", "reset_adam", "lr_boost", "set_beta2",
            "set_alpha", "alpha_track", "reward_offset", "greedy_ac", "best_of")
@@ -24,7 +25,10 @@ class CappedNormalizeObservation(NormalizeObservation):
 
 def _load_one(pattern):
     """torch.load of the single file matching a path with env vars, ~ and wildcards"""
-    matches = sorted(glob.glob(os.path.expandvars(os.path.expanduser(pattern))))
+    path = os.path.expandvars(os.path.expanduser(pattern))
+    run, name = os.path.split(path)
+    split = os.path.join(os.path.dirname(run), layout.ARTIFACTS, os.path.basename(run), name)  # <results>/artifacts/<run>/
+    matches = sorted(set(glob.glob(path)) | set(glob.glob(split)))
     if len(matches) != 1:
         raise FileNotFoundError(f"{pattern!r} matches {len(matches)} files, need exactly 1: {matches[:5]}")
     return torch.load(matches[0], weights_only=False)
