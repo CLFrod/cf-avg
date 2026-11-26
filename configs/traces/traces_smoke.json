@@ -1,0 +1,24 @@
+{
+ "_comment": [
+  "Smoke test of the critic eligibility trace: Hopper gear2x, 3000 steps, switch at 1500, one-step TD against lambda 0.8."
+ ],
+ "defaults": {
+  "N": 3000,
+  "seeds": [18606],
+  "gamma": 0.99,
+  "beta1": 0.0,
+  "normalize_obs": true,
+  "pnorm": true,
+  "scaled_td": true,
+  "legacy_g_reset": true,
+  "checkpoint": 1000,
+  "schedule": [{"step": 1500, "mods": {"gear_scale": 2.0}}]
+ },
+ "envs": {
+  "Hopper-v4": {"actor_lr": 1.1e-05, "critic_lr": 7.7e-05, "alpha_lr": 0.3}
+ },
+ "experiments": [
+  {"name": "td0-gear2x"},
+  {"name": "lam0.8-gear2x", "critic_lambda": 0.8}
+ ]
+}

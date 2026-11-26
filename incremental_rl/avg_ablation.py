@@ -245,6 +245,11 @@ class AVG:
 
         self.td_error_scaler = TDErrorScaler(*(cfg.td_scaler_cap or (None, None)))
         self.G = 0
+        # Critic eligibility trace (TD(lambda)); None = one-step TD
+        self.lam = float(getattr(cfg, "critic_lambda", 0.0))
+        if not 0.0 <= self.lam <= 1.0:
+            raise ValueError(f"critic_lambda must be in [0, 1], got {self.lam}")
+        self.z = [torch.zeros_like(p) for p in self.Q.parameters()] if self.lam > 0 else None
         self.last_td_abs = 0.0
         self.last_lprob = 0.0
         self.last_entropy = 0.0
@@ -317,8 +322,19 @@ class AVG:
         self.popt.step()
 
         self.qopt.zero_grad()
-        qloss.backward()
+        if self.z is None:
+            qloss.backward()
+        else:
+            # d(qloss)/dw = coef * dQ/dw, with the trace in place of dQ/dw
+            coef = -2.0 * delta.item() / (sigma if self.cfg.scaled_td else 1.0)
+            grads = torch.autograd.grad(q.sum(), list(self.Q.parameters()))
+            for p, z, g in zip(self.Q.parameters(), self.z, grads):
+                z.mul_(self.gamma * self.lam).add_(g)
+                p.grad = coef * z
         self.qopt.step()
+        if self.z is not None and (done or truncated):
+            for z in self.z:
+                z.zero_()
 
         acc = self._acc
         acc["actor_loss"] += ploss.item()
@@ -830,6 +846,12 @@ def get_parser(add_help=True):
     parser.add_argument("--pnorm", action="store_true", default=False)
     parser.add_argument("--scaled_td", action="store_true", default=False)
     parser.add_argument(
+        "--critic_lambda",
+        default=0.0,
+        type=float,
+        help="Eligibility trace decay for the critic, TD(lambda) with an accumulating trace reset at episode end (0 = one-step TD, off)",
+    )
+    parser.add_argument(
         "--legacy_g_reset",
         action="store_true",
         default=False,
@@ -965,6 +987,8 @@ if __name__ == "__main__":
         args.algo = "avg_scaled_variant"
     if args.legacy_g_reset:
         args.algo += "_legacyG"
+    if args.critic_lambda > 0:
+        args.algo += f"_lam{args.critic_lambda:g}"
     print(args.algo)
 
     # Start experiment

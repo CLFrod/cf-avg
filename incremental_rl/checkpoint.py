@@ -60,6 +60,7 @@ def save(run_dir, *, step, episode, agent, env, rets, ep_steps, wall_time, run_i
             "actor": agent.actor.state_dict(), "critic": agent.Q.state_dict(),
             "popt": agent.popt.state_dict(), "qopt": agent.qopt.state_dict(),
             "steps": agent.steps, "G": agent.G,
+            "z": None if agent.z is None else [z.clone() for z in agent.z],
             "td_scaler": {k: {"n": getattr(scaler, k).n, "m": getattr(scaler, k).m, "s": getattr(scaler, k).s}
                           for k in SCALER_STATS},
         },
@@ -95,6 +96,9 @@ def restore(state, agent, env):
     agent.popt.load_state_dict(a["popt"])
     agent.qopt.load_state_dict(a["qopt"])
     agent.steps, agent.G = a["steps"], a["G"]
+    if agent.z is not None and a.get("z") is not None:
+        for z, saved in zip(agent.z, a["z"]):
+            z.copy_(saved)
     for k, d in a["td_scaler"].items():
         rs = getattr(agent.td_error_scaler, k)
         rs.n, rs.m, rs.s = d["n"], d["m"], d["s"]
