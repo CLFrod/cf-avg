@@ -115,9 +115,28 @@ ENVS = {
             "flipped_joint": {"gear": {"distal": -15}},
         },
     },
+    "InvertedDoublePendulum-v4": {  # long sweep draw h048; one actuator, so no single-joint shifts
+        "hyp": {"actor_lr": 0.0052, "critic_lr": 0.00069, "alpha_lr": 0.1, "gamma": 0.99, "beta1": 0.9},
+        "N": 4_000_000,
+        "shifts": {
+            "payload": {"mass": {"cart": 20.94}},
+            "limb_heavy": {"mass": {"pole2": 12.60}},
+        },
+    },
+    "dmc-quadruped-run": {  # long sweep draw h000; position servos, so strength is gain_scale, not gear_scale
+        "hyp": {"actor_lr": 0.0048, "critic_lr": 0.00065, "alpha_lr": 0.0004, "gamma": 0.97, "beta1": 0.9},
+        "N": 12_000_000,
+        "core": {"gear2x": None, "gain2x": {"gain_scale": 2.0}},
+        "shifts": {
+            "payload": {"mass": {"torso": 135.72}},
+            "limb_heavy": {"mass": {"hip_front_left": 12.855, "knee_front_left": 8.766, "ankle_front_left": 4.608, "toe_front_left": 3.216}},
+            "dead_joint": {"gear": {"lift_front_left": 0}},
+            "flipped_joint": {"gear": {"lift_front_left": -1}},
+        },
+    },
 }
 
-# shifts every environment gets; an env's "core" entry overrides a value
+# shifts every environment gets; an env's "core" entry overrides a value, or drops the shift with None
 CORE = {
     "heavy": {"mass_scale": 2.0},
     "gear2x": {"gear_scale": 2.0},
@@ -147,7 +166,8 @@ def config(env, part, n_seeds, smoke=False):
     N = 3000 if smoke else spec["N"]
     switch = N // 2
     boost = min(200_000, (N - switch) // 10)
-    shifts = {**CORE, **spec.get("core", {})} if part == "core" else spec["shifts"]
+    core = {k: v for k, v in {**CORE, **spec.get("core", {})}.items() if v is not None}
+    shifts = core if part == "core" else spec["shifts"]
     experiments = [{"name": "legacy-none"}] if part == "core" else []
     for shift, mods in shifts.items():
         schedule = [{"step": switch, "mods": mods}]

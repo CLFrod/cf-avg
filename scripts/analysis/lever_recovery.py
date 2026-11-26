@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
 SHIFTS = ("gear2x|heavy|limb_heavy|moon|slippery|moon_back|none|stiff|loose|all_flipped|payload|heavy_object|weak_joint|dead_joint|"
-          "flipped_joint|stiff_springs|rotor")
+          "flipped_joint|stiff_springs|rotor|gain2x")
 RUN_RE = re.compile(rf"^(?P<cond>.+?)-(?P<shift>{SHIFTS})-(?P<env>[A-Za-z0-9]+-v\d+|dmc-[a-z]+-[a-z]+)-(?P<seed>\d+)-\d{{8}}_\d{{6}}$")
 TICK, WIN = 10_000, 50_000
 BASE = "fix"  # the paired reference condition; --base legacy for a batch run without the G-truncation fix
