@@ -1,6 +1,6 @@
 {
  "_comment": [
-  "Smoke test of configs/levers_legacy_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Smoke test of configs/levers/levers_legacy_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
   "Login node, ~2 min: bash scripts/trillium/smoke_levers.sh"
  ],
  "defaults": {

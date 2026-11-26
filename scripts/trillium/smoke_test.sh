@@ -64,7 +64,7 @@ fi
 
 step "2/5 real config resolves"
 # (captured rather than piped to `head`: head closing the pipe early would SIGPIPE python and, with pipefail, abort the script)
-plan=$(python -m incremental_rl.avg_multi_experiment --config configs/trillium_dynamics_3env_24m.json --dry_run 2>/dev/null)
+plan=$(python -m incremental_rl.avg_multi_experiment --config configs/dynamics_shifts/trillium_dynamics_3env_24m.json --dry_run 2>/dev/null)
 echo "${plan%%$'\n'*}"
 
 step "3/5 three tiny runs (one per env) with a physics + termination switch at step $((N / 2)), videos, checkpoints"

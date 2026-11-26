@@ -1,7 +1,7 @@
 {
  "_comment": [
-  "Smoke test of configs/priv_legacy_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
-  "Login node, ~2 min: CONFIG=configs/priv_legacy_smoke.json bash scripts/trillium/smoke_levers.sh"
+  "Smoke test of configs/privileged/priv_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Login node, ~2 min: CONFIG=configs/privileged/priv_smoke.json bash scripts/trillium/smoke_levers.sh"
  ],
  "defaults": {
   "N": 3000,
@@ -32,7 +32,7 @@
  },
  "experiments": [
   {
-   "name": "legacy-gear2x",
+   "name": "fix-gear2x",
    "schedule": [
     {
      "step": 1500,
@@ -40,15 +40,13 @@
       "gear_scale": 2.0
      }
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "scratch-gear2x",
    "env_mods": {
     "gear_scale": 2.0
-   },
-   "legacy_g_reset": true
+   }
   },
   {
    "name": "L02_shrink_obs-gear2x",
@@ -65,8 +63,7 @@
      "action": "shrink_obs_norm",
      "count": 1000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P1_alpha_x0.1-gear2x",
@@ -84,8 +81,7 @@
      "k": 0.1,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P1_alpha_x0.3-gear2x",
@@ -103,8 +99,7 @@
      "k": 0.3,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P2_alpha_track-gear2x",
@@ -127,8 +122,7 @@
      "max": 2.0,
      "release": 100000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P3_reward_offset-gear2x",
@@ -146,8 +140,7 @@
      "offset": 0.38,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P4_priv_obs-gear2x",
@@ -166,8 +159,7 @@
      "obs_only": true,
      "count": 10000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P5_obs_alpha-gear2x",
@@ -191,8 +183,7 @@
      "k": 0.1,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P6_obs_track-gear2x",
@@ -221,8 +212,7 @@
      "max": 2.0,
      "release": 100000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P7_obs_offset-gear2x",
@@ -246,8 +236,7 @@
      "offset": 0.38,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P8_obs_alpha_offset-gear2x",
@@ -276,8 +265,7 @@
      "offset": 0.38,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P9_obs_track_offset-gear2x",
@@ -311,8 +299,7 @@
      "offset": 0.38,
      "steps": 300000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "P10_obs_track_adam-gear2x",
@@ -345,8 +332,7 @@
      "action": "reset_adam",
      "net": "both"
     }
-   ],
-   "legacy_g_reset": true
+   ]
   }
  ]
 }

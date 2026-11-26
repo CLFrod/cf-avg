@@ -3,7 +3,7 @@
     "Rehearsal of the real job script on the debug partition: 3 runs (one per env), 60k steps each (~3 min),",
     "same hyperparameters/physics mechanics as trillium_dynamics_3env.json, videos at 30k (switch) and the end.",
     "Job 1 (stop early, exercise checkpoints):",
-    "  sbatch -p debug --time=00:15:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/trillium_jobtest.json,TIME_LIMIT=0.025 \\",
+    "  sbatch -p debug --time=00:15:00 --export=ALL,CONFIG=$HOME/cf-avg/configs/dynamics_shifts/trillium_jobtest.json,TIME_LIMIT=0.025 \\",
     "      $HOME/cf-avg/scripts/trillium/avg_multi.sh",
     "Job 2 (resume to completion, after job 1 has finished):",
     "  sbatch -p debug --time=00:15:00 --export=ALL,RESUME_FROM=\"$SCRATCH/results/jobtest-*\" \\",

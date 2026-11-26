@@ -4,14 +4,14 @@
 #   lever run resumed from its checkpoint. Checks that every run completes, the hook fires at the switch, load_stats
 #   finds its files on $SCRATCH, and the dense/metrics logs are written.
 #
-#   cd $HOME/cf-avg && bash scripts/trillium/smoke_levers.sh                      # batch 1: configs/levers_smoke.json
-#   CONFIG=configs/priv_smoke.json bash scripts/trillium/smoke_levers.sh          # batch 2
+#   cd $HOME/cf-avg && bash scripts/trillium/smoke_levers.sh                      # batch 1: configs/levers/levers_smoke.json
+#   CONFIG=configs/privileged/priv_smoke.json bash scripts/trillium/smoke_levers.sh          # batch 2
 #
 # Results are left in $SCRATCH/results/smoke_levers_<time>/ (delete when done).
 set -euo pipefail
 
 REPO=${REPO:-$HOME/cf-avg}
-CONFIG=${CONFIG:-configs/levers_smoke.json}
+CONFIG=${CONFIG:-configs/levers/levers_smoke.json}
 PREFIX=$(basename "$CONFIG" _smoke.json)                                  # levers | priv
 OUT=${OUT:-$SCRATCH/results/smoke_${PREFIX}_$(date +%Y%m%d_%H%M%S)}
 [ -n "${MUJOCO_GL-}" ] || export MUJOCO_GL=osmesa
@@ -29,7 +29,7 @@ step() { echo; echo "== $*"; }
 
 step "1/3 the three real configs resolve"
 for e in hopper ant humanoid; do
-    plan=$(python -m incremental_rl.avg_multi_experiment --config configs/levers_$e.json --dry_run 2>/dev/null)
+    plan=$(python -m incremental_rl.avg_multi_experiment --config configs/levers/levers_$e.json --dry_run 2>/dev/null)
     echo "  levers_$e: ${plan%%$'\n'*}"
 done
 
