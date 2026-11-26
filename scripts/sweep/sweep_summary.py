@@ -29,16 +29,17 @@ if __name__ == "__main__":
         steps = np.cumsum(ep_lens)
         if steps[-1] < 0.99 * hyp["N"]:
             continue
-        draws.setdefault((hyp["env"], meta["experiment"]), {"hyp": hyp, "all": [], "last": []})
-        draws[(hyp["env"], meta["experiment"])]["all"].append(rets.mean())
-        draws[(hyp["env"], meta["experiment"])]["last"].append(rets[steps > 0.9 * hyp["N"]].mean())
-    print("| env | draw | seeds | return, whole run | return, last 10% | " + " | ".join(KEYS) + " |")
-    print("|---|---|---|---|---|" + "---|" * len(KEYS))
+        key = (hyp["env"], hyp["N"], meta["experiment"])  # runs of different length are ranked apart
+        draws.setdefault(key, {"hyp": hyp, "all": [], "last": []})
+        draws[key]["all"].append(rets.mean())
+        draws[key]["last"].append(rets[steps > 0.9 * hyp["N"]].mean())
+    print("| env | steps | draw | seeds | return, whole run | return, last 10% | " + " | ".join(KEYS) + " |")
+    print("|---|---|---|---|---|---|" + "---|" * len(KEYS))
     shown = {}
-    for (env, name), r in sorted(draws.items(), key=lambda kv: (kv[0][0], -np.mean(kv[1]["all"]))):
-        shown[env] = shown.get(env, 0) + 1
-        if args.top and shown[env] > args.top:
+    for (env, N, name), r in sorted(draws.items(), key=lambda kv: (kv[0][0], kv[0][1], -np.mean(kv[1]["all"]))):
+        shown[(env, N)] = shown.get((env, N), 0) + 1
+        if args.top and shown[(env, N)] > args.top:
             continue
         se = lambda v: np.std(v, ddof=1) / np.sqrt(len(v)) if len(v) > 1 else float("nan")
-        print(f"| {env} | {name} | {len(r['all'])} | {np.mean(r['all']):.1f} ± {se(r['all']):.1f} | {np.mean(r['last']):.1f} ± {se(r['last']):.1f} | "
+        print(f"| {env} | {N:g} | {name} | {len(r['all'])} | {np.mean(r['all']):.1f} ± {se(r['all']):.1f} | {np.mean(r['last']):.1f} ± {se(r['last']):.1f} | "
               + " | ".join(f"{r['hyp'][k]:g}" for k in KEYS) + " |")
