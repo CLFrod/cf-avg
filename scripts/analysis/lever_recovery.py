@@ -1,10 +1,14 @@
 """Recovery analysis of the lever study: per-run recovery metrics, paired comparisons to the fix-only split, figures.
 
     python scripts/analysis/lever_recovery.py [--root results_trillium/lever_results/results] [--out .../analysis] [--dense]
+    python scripts/analysis/lever_recovery.py --root <results>/<env> --out <out>/<env> --base legacy --unit auto --floor   # shift study
 
 Writes recovery_metrics.csv (one row per run), recovery_summary.csv (per condition, with paired deltas vs fix),
 summary.md, heatmaps across all env/shift pairs, recovery curves and recovery-time plots per env/shift, and a
 diagnostics grid per condition. --dense adds per-step plots of the first 100k steps after the switch.
+--unit auto scales every window (1M, 500k, 50k, ...) to a third of the post-switch steps for short runs; --floor measures
+thresholds and ratios from the untrained return instead of 0, for environments with negative returns. Both write
+classes.csv (recovery class of the base run against from-scratch) and baseline.csv (the no-shift runs).
 """
 import argparse, csv, glob, gzip, json, os, re
 import numpy as np
@@ -17,6 +21,8 @@ SHIFTS = ("gear2x|heavy|limb_heavy|moon|slippery|moon_back|none|stiff|loose|all_
           "flipped_joint|stiff_springs|rotor|gain2x")
 RUN_RE = re.compile(rf"^(?P<cond>.+?)-(?P<shift>{SHIFTS})-(?P<env>[A-Za-z0-9]+-v\d+|dmc-[a-z]+-[a-z]+)-(?P<seed>\d+)-\d{{8}}_\d{{6}}$")
 TICK, WIN = 10_000, 50_000
+UNIT = 1_000_000  # steps that "1M" stands for in every window below; --unit auto shrinks it for short runs
+FLOOR = 0.0  # return of an untrained agent; thresholds are FLOOR + fraction * (target - FLOOR)
 BASE = "fix"  # the paired reference condition; --base legacy for a batch run without the G-truncation fix
 DTICK = 1_000
 COLS = ["return", "ep_len", "td_error", "td_signed", "td_abs_raw", "td_sigma", "critic_loss", "actor_loss", "entropy", "actor_loss_q",
@@ -34,7 +40,9 @@ BATCH2_GROUPS = {
     "Privileged singles": ["L02_shrink_obs", "P1_alpha_x0.1", "P1_alpha_x0.3", "P2_alpha_track", "P3_reward_offset", "P4_priv_obs"],
     "Stacks on privileged obs stats": ["P5_obs_alpha", "P6_obs_track", "P7_obs_offset", "P8_obs_alpha_offset", "P9_obs_track_offset", "P10_obs_track_adam"],
 }
-BATCH_KEYS = [(BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L07_reset_adam"])]
+STUDY_GROUPS = {"Levers": ["L02_shrink_obs", "L07_reset_adam", "L08_critic_x3", "L09_actor_freeze"]}
+BATCH_KEYS = [(BATCH2_GROUPS, ["P5_obs_alpha", "P4_priv_obs"]), (BATCH1_GROUPS, ["S01_stats_stack", "L04_shrink_scaler"]),
+              (STUDY_GROUPS, ["L02_shrink_obs"])]
 GROUPS = BATCH1_GROUPS  # replaced by select_groups() once the conditions are known
 ORDER = [c for g in GROUPS.values() for c in g]
 
@@ -67,16 +75,37 @@ def color_of(cond):
     return "#999999", "-"
 
 
+def u(steps):
+    """A window written for 1M-step units, in the current unit"""
+    return int(steps * UNIT / 1_000_000)
+
+
+def nice_unit(H):
+    """Largest 1-2-5 step count that is at most a third of the post-switch steps, 1M at most"""
+    target = min(1_000_000, H / 3)
+    best = 1
+    for e in range(2, 7):
+        for k in (1, 2, 5):
+            if k * 10**e <= target:
+                best = k * 10**e
+    return best
+
+
 def discover(root):
-    runs = {}
+    """(env, shift) -> cond -> [(seed, folder)] of the finished runs, and the unfinished run names"""
+    runs, unfinished = {}, []
     if os.path.isdir(os.path.join(root, "runs")):  # split layout: <root>/runs/<run>/
         root = os.path.join(root, "runs")
     for d in sorted(glob.glob(os.path.join(root, "*"))):
         m = RUN_RE.match(os.path.basename(d))
         if m and os.path.exists(os.path.join(d, "checkpoint.json")):
+            meta = json.load(open(os.path.join(d, "checkpoint.json")))
+            if meta["step"] < 0.99 * meta["N"]:
+                unfinished.append(os.path.basename(d))
+                continue
             g = m.groupdict()
             runs.setdefault((g["env"], g["shift"]), {}).setdefault(g["cond"], []).append((int(g["seed"]), d))
-    return runs
+    return runs, unfinished
 
 
 def find(folder, suffix):
@@ -169,8 +198,8 @@ def first_reach(x, v, S, thresh, H):
 
 def settle(x, v, S, H):
     """Peak ratio of a diagnostic after the switch vs its pre-switch median, and steps until it is back within 1.5x"""
-    pre = np.nanmedian(v[(x > S - 200_000) & (x <= S)])
-    early = (x >= S + WIN) & (x <= S + 500_000)
+    pre = np.nanmedian(v[(x > S - u(200_000)) & (x <= S)])
+    early = (x >= S + WIN) & (x <= S + u(500_000))
     if not np.isfinite(pre) or pre <= 0 or not np.any(np.isfinite(v[early])):
         return np.nan, np.nan, np.nan
     i_peak = np.where(early)[0][np.nanargmax(v[early])]
@@ -182,18 +211,20 @@ def recovery(cur, S, tgt_fix, tgt_scr, has_pre):
     x, R, N = cur["x"], cur["return"], int(cur["N"])
     H = N - S
     post = x >= S + WIN  # the first window after the switch still holds pre-switch episodes
-    early = post & (x <= S + 500_000)
-    m = {"pre": np.nanmean(R[(x > S - 200_000) & (x <= S)]) if has_pre else np.nan}
+    early = post & (x <= S + u(500_000))
+    m = {"pre": np.nanmean(R[(x > S - u(200_000)) & (x <= S)]) if has_pre else np.nan}
     m["dip"] = m["pre"] - np.nanmin(R[early])
-    m["dip_frac"] = m["dip"] / abs(m["pre"]) if has_pre else np.nan
+    m["dip_frac"] = m["dip"] / abs(m["pre"] - FLOOR) if has_pre else np.nan
     m["t_min"] = float(x[early][np.nanargmin(R[early])] - S)
-    m["t80_fix"], m["t80_fix_cens"] = first_reach(x, R, S, 0.8 * tgt_fix, H)
-    m["t80_scr"], m["t80_scr_cens"] = first_reach(x, R, S, 0.8 * tgt_scr, H)
-    m["t90_pre"], m["t90_pre_cens"] = first_reach(x, R, S, 0.9 * m["pre"], H) if has_pre else (np.nan, np.nan)
+    m["t80_fix"], m["t80_fix_cens"] = first_reach(x, R, S, FLOOR + 0.8 * (tgt_fix - FLOOR), H)
+    m["t80_scr"], m["t80_scr_cens"] = first_reach(x, R, S, FLOOR + 0.8 * (tgt_scr - FLOOR), H)
+    m["t90_pre"], m["t90_pre_cens"] = first_reach(x, R, S, FLOOR + 0.9 * (m["pre"] - FLOOR), H) if has_pre else (np.nan, np.nan)
     for k, w in (("early_500k", 500_000), ("early_1M", 1_000_000), ("early_2M", 2_000_000)):
-        m[k] = np.nanmean(R[post & (x <= S + w)])
-    m["asym"] = np.nanmean(R[x > N - 1_000_000])
-    m["regret_fix"] = np.nanmean(np.maximum(tgt_fix - R[post], 0)) / abs(tgt_fix)
+        m[k] = np.nanmean(R[post & (x <= S + u(w))])
+    m["asym"] = np.nanmean(R[x > N - u(1_000_000)])
+    m["regret_fix"] = np.nanmean(np.maximum(tgt_fix - R[post], 0)) / abs(tgt_fix - FLOOR)
+    m["ep_len_kept"] = (np.nanmean(cur["ep_len"][(x > S + u(50_000)) & (x <= S + u(300_000))]) / np.nanmean(cur["ep_len"][(x > S - u(200_000)) & (x <= S)])
+                        if has_pre else np.nan)
     m["cg_peak"], m["cg_settle"], m["cg_settle_cens"] = settle(x, cur["critic_grad_norm"], S, H) if has_pre else (np.nan,) * 3
     m["td_peak"], m["td_settle"], m["td_settle_cens"] = settle(x, cur["td_abs_raw"], S, H) if has_pre else (np.nan,) * 3
     return m
@@ -225,6 +256,15 @@ def fmt_steps(v):
     return f"{v / 1e6:.2f}M" if np.isfinite(v) else "n/a"
 
 
+def recovery_class(dip_frac, speed, asym_ratio):
+    """Recovery class of a shift for the base agent (0 unaffected .. 4 impaired), rules applied in order; 5 = from-scratch never learned"""
+    if dip_frac < 0.10:
+        return 0
+    if asym_ratio < 0.8 or speed > 1.25:
+        return 4
+    return 3 if speed > 0.75 else 2 if speed > 0.25 else 1
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--root", default="results_trillium/lever_results/results")
@@ -232,25 +272,52 @@ def main():
     p.add_argument("--dense", action="store_true", help="also plot the per-step dense logs (slow on first run)")
     p.add_argument("--only", nargs="*", default=None, help="restrict to these env or shift names")
     p.add_argument("--base", default="fix", help="Reference condition the levers are paired against (fix or legacy)")
+    p.add_argument("--unit", default="1000000", help="Steps that 1M stands for in every window, or auto: a third of the post-switch steps, 1M at most")
+    p.add_argument("--floor", action="store_true", help="Measure thresholds and ratios from the untrained return (first window of the from-scratch runs) instead of 0")
+    p.add_argument("--no_diag", action="store_true", help="Skip the per-condition diagnostics grids")
     args = p.parse_args()
-    global BASE
+    global BASE, UNIT, TICK, WIN, FLOOR
     BASE = args.base
+    REF_STYLE[BASE] = ("#0b0b0b", "-")
     cache_dir = os.path.join(args.out, "cache")
     os.makedirs(cache_dir, exist_ok=True)
-    runs = discover(args.root)
+    runs, unfinished = discover(args.root)
     if args.only:
         runs = {k: v for k, v in runs.items() if k[0] in args.only or k[1] in args.only}
     select_groups({c for conds in runs.values() for c in conds})
-    print(f"{sum(len(s) for c in runs.values() for s in c.values())} runs in {len(runs)} env/shift pairs")
+    print(f"{sum(len(s) for c in runs.values() for s in c.values())} runs in {len(runs)} env/shift pairs; {len(unfinished)} unfinished runs skipped")
+    with open(os.path.join(args.out, "unfinished.txt"), "w") as f:
+        f.write("\n".join(unfinished) + ("\n" if unfinished else ""))
+    nomod = {k: v for k, v in runs.items() if k[1] == "none"}
+    runs = {k: v for k, v in runs.items() if k[1] != "none" and BASE in v}
+    if args.unit == "auto":  # one unit for the whole call, from the first pair's post-switch length
+        (env0, _), conds0 = sorted(runs.items())[0]
+        N0 = int(json.load(open(os.path.join(conds0[BASE][0][1], "checkpoint.json")))["N"])
+        UNIT = nice_unit(N0 - switch_step(conds0[BASE]))
+    else:
+        UNIT = int(args.unit)
+    TICK, WIN = max(1, UNIT // 100), max(1, UNIT // 20)
+    print(f"unit {UNIT} steps, tick {TICK}, window {WIN}")
+    ulabel = lambda steps: f"{u(steps) / 1e6:g}M" if u(steps) >= 1_000_000 else f"{u(steps) / 1e3:g}k"
 
-    per_run, summary, md = [], [], ["# Lever study batch 1: recovery after the physics switch\n",
-                                    f"Return curves use a {WIN // 1000}k-step trailing window evaluated every {TICK // 1000}k steps. "
-                                    "`t80_fix` is the number of steps after the switch until the curve first reaches 80% of the fix-only "
-                                    "runs' post-shift asymptote (mean return over the final 1M steps, averaged over seeds); a run that never "
-                                    "gets there is counted at the horizon and marked censored. `early_1M` is the mean return over the first 1M "
-                                    "post-switch steps. Deltas are paired by seed against fix; wins count seeds where the lever beat fix; "
-                                    "`*`/`**` mark a paired t-test at 0.05/0.01 (df = seeds - 1). From-scratch runs are aligned so their step 0 is the switch.\n"]
-    heat, gfix = {}, {}
+    per_run, summary, md = [], [], ["# Recovery after the physics switch\n",
+                                    f"Return curves use a {ulabel(50_000)}-step trailing window evaluated every {ulabel(10_000)} steps. "
+                                    f"`t80_fix` is the number of steps after the switch until the curve first reaches 80% of the {BASE} "
+                                    f"runs' post-shift asymptote (mean return over the final {ulabel(1_000_000)} steps, averaged over seeds); a run that never "
+                                    f"gets there is counted at the horizon and marked censored. `early_1M` is the mean return over the first {ulabel(1_000_000)} "
+                                    f"post-switch steps. Deltas are paired by seed against {BASE}; wins count seeds where the lever beat {BASE}; "
+                                    "`*`/`**` mark a paired t-test at 0.05/0.01 (df = seeds - 1). From-scratch runs are aligned so their step 0 is the switch."
+                                    + (" Thresholds, regret and ratios are measured from the untrained return (floor), not from 0." if args.floor else "") + "\n"]
+    heat, gfix, classes, baseline = {}, {}, [], []
+    for (env, shift), conds in sorted(nomod.items()):  # no-shift baseline runs
+        for cond, folders in conds.items():
+            cs = [load_run(d, cache_dir) for _, d in sorted(folders)]
+            N = int(cs[0]["N"])
+            for (seed, _), c in zip(sorted(folders), cs):
+                R = c["return"]
+                baseline.append({"env": env, "cond": cond, "seed": seed, "N": N, "whole_run": float(np.nanmean(R)),
+                                 "mid": float(np.nanmean(R[(c["x"] > N // 2 - u(200_000)) & (c["x"] <= N // 2)])),
+                                 "final": float(np.nanmean(R[c["x"] > N - u(1_000_000)]))})
     for (env, shift), conds in sorted(runs.items()):
         S = switch_step(conds[BASE])
         print(f"== {env} {shift}: switch at {S}, {len(conds)} conditions")
@@ -263,8 +330,11 @@ def main():
         N = int(next(iter(curves[BASE].values()))["N"])
         x = next(iter(curves[BASE].values()))["x"]
         H = N - S
-        tgt_fix = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves[BASE].values()]))
-        tgt_scr = float(np.mean([np.nanmean(c["return"][x > N - 1_000_000]) for c in curves["scratch"].values()])) if "scratch" in curves else float("nan")
+        tgt_fix = float(np.mean([np.nanmean(c["return"][x > N - u(1_000_000)]) for c in curves[BASE].values()]))
+        tgt_scr = float(np.mean([np.nanmean(c["return"][x > N - u(1_000_000)]) for c in curves["scratch"].values()])) if "scratch" in curves else float("nan")
+        FLOOR = 0.0
+        if args.floor and "scratch" in curves:
+            FLOOR = float(np.mean([np.nanmean(c["return"][(x > S) & (x <= S + WIN)]) for c in curves["scratch"].values()]))
         metrics = {cond: {seed: recovery(c, S, tgt_fix, tgt_scr, not cond.endswith("scratch")) for seed, c in cs.items()} for cond, cs in curves.items()}
         for cond, ms in metrics.items():
             for seed, m in ms.items():
@@ -295,10 +365,24 @@ def main():
         for k in ("early_1M", "t80_fix", "asym", "regret_fix"):
             heat.setdefault(k, {})[(env, shift)] = {c: rows[(c, k)] for c in conds if c != BASE}
         heat.setdefault("H", {})[(env, shift)] = H
+        heat.setdefault("floor", {})[(env, shift)] = FLOOR
+        if "scratch" in conds:  # recovery class of the base run against the from-scratch run in the shifted dynamics
+            scr = {k: rows[("scratch", k)] for k in ("t80_scr", "asym")}
+            b = {k: rows[(BASE, k)]["mean"] for k in ("pre", "dip", "ep_len_kept", "t80_scr", "asym")}
+            b["dip_frac"] = b["dip"] / abs(b["pre"] - FLOOR)  # ratio of means: a seed with pre near the floor would blow up a mean of ratios
+            learned = scr["asym"]["mean"] - FLOOR >= 0.1 * abs(b["pre"] - FLOOR)
+            speed = b["t80_scr"] / scr["t80_scr"]["mean"]
+            aratio = (b["asym"] - FLOOR) / (scr["asym"]["mean"] - FLOOR)
+            classes.append({"env": env, "shift": shift, "S": S, "N": N, "unit": UNIT, "floor": FLOOR, "pre": b["pre"], "dip_frac": b["dip_frac"],
+                            "ep_len_kept": b["ep_len_kept"], "t80_scr_base": b["t80_scr"], "t80_scr_scratch": scr["t80_scr"]["mean"],
+                            "base_censored": rows[(BASE, "t80_scr")]["censored"], "scratch_censored": scr["t80_scr"]["censored"],
+                            "speed_ratio": speed, "asym_base": b["asym"], "asym_scratch": scr["asym"]["mean"], "asym_ratio": aratio,
+                            "asym_kept": (b["asym"] - FLOOR) / (b["pre"] - FLOOR), "scratch_learned": int(learned),
+                            "class": recovery_class(b["dip_frac"], speed, aratio) if learned else 5})
 
         # markdown table
-        md.append(f"\n## {env}, {shift} (switch at {fmt_steps(S)}, horizon {fmt_steps(H)}; fix asymptote {tgt_fix:.0f}, scratch asymptote {tgt_scr:.0f})\n")
-        md.append("| condition | pre-shift | dip | t80_fix (cens.) | Δ t80 vs fix | early_1M | Δ vs fix | asymptote | regret |")
+        md.append(f"\n## {env}, {shift} (switch at {fmt_steps(S)}, horizon {fmt_steps(H)}; {BASE} asymptote {tgt_fix:.4g}, scratch asymptote {tgt_scr:.4g}, floor {FLOOR:.4g})\n")
+        md.append(f"| condition | pre-shift | dip | t80_fix (cens.) | Δ t80 vs {BASE} | early_1M | Δ vs {BASE} | asymptote | regret |")
         md.append("|---|---|---|---|---|---|---|---|---|")
         for cond in dict.fromkeys([BASE, "legacy", "scratch"] + [c for c in ORDER if c in conds and c not in ("legacy", BASE)]):
             if cond not in conds:
@@ -307,11 +391,11 @@ def main():
             d80 = r["t80_fix"]
             d1m = r["early_1M"]
             dcol = lambda rr, f: "" if not np.isfinite(rr["diff"]) else f"{f(rr['diff'])} ({rr['wins']}/{rr['n_pairs']}){rr['sig']}"
-            md.append(f"| {cond} | {r['pre']['mean']:.0f} | {r['dip']['mean']:.0f} | {fmt_steps(d80['mean'])} ({d80['censored']}/{d80['n']}) | "
+            md.append(f"| {cond} | {r['pre']['mean']:.4g} | {r['dip']['mean']:.4g} | {fmt_steps(d80['mean'])} ({d80['censored']}/{d80['n']}) | "
                       f"{dcol(d80, lambda v: ('+' if v > 0 else '') + fmt_steps(abs(v)) if v >= 0 else '-' + fmt_steps(abs(v)))} | "
-                      f"{d1m['mean']:.0f} ± {d1m['se']:.0f} | {dcol(d1m, lambda v: f'{v:+.0f}')} | {r['asym']['mean']:.0f} ± {r['asym']['se']:.0f} | {r['regret_fix']['mean']:.2f} |")
+                      f"{d1m['mean']:.4g} ± {d1m['se']:.3g} | {dcol(d1m, lambda v: f'{v:+.3g}')} | {r['asym']['mean']:.4g} ± {r['asym']['se']:.3g} | {r['regret_fix']['mean']:.2f} |")
 
-        md.append(f"\nPolicy response to the switch (pre = last 200k steps before it, post = 50k..300k after it):\n")
+        md.append(f"\nPolicy response to the switch (pre = last {ulabel(200_000)} steps before it, post = {ulabel(50_000)}..{ulabel(300_000)} after it):\n")
         md.append("| condition | entropy pre → post | actor grad norm post/pre | ep_len pre → post | critic loss post/pre |")
         md.append("|---|---|---|---|---|")
         for cond in dict.fromkeys([BASE, "legacy"] + [c for c in ORDER if c in conds and c not in ("legacy", BASE)]):
@@ -319,14 +403,15 @@ def main():
                 continue
             def win(k, lo, hi):
                 return np.mean([np.nanmean(c[k][(x > S + lo) & (x <= S + hi)]) for c in curves[cond].values()])
-            e0, e1 = win("entropy", -200_000, 0), win("entropy", 50_000, 300_000)
-            g0, g1 = win("actor_grad_norm", -200_000, 0), win("actor_grad_norm", 50_000, 300_000)
-            l0, l1 = win("ep_len", -200_000, 0), win("ep_len", 50_000, 300_000)
-            c0, c1 = win("critic_loss", -200_000, 0), win("critic_loss", 50_000, 300_000)
+            e0, e1 = win("entropy", -u(200_000), 0), win("entropy", u(50_000), u(300_000))
+            g0, g1 = win("actor_grad_norm", -u(200_000), 0), win("actor_grad_norm", u(50_000), u(300_000))
+            l0, l1 = win("ep_len", -u(200_000), 0), win("ep_len", u(50_000), u(300_000))
+            c0, c1 = win("critic_loss", -u(200_000), 0), win("critic_loss", u(50_000), u(300_000))
             md.append(f"| {cond} | {e0:.1f} → {e1:.1f} | ×{g1 / g0:.2f} | {l0:.0f} → {l1:.0f} | ×{c1 / c0:.2f} |")
 
         # recovery curves, one panel per lever group
-        fig, axes = plt.subplots(1, len(GROUPS), figsize=(6 * len(GROUPS), 5), sharey=True)
+        fig, axes = plt.subplots(1, len(GROUPS), figsize=(max(9, 6 * len(GROUPS)), 5), sharey=True, squeeze=False)
+        axes = axes[0]
         for ax, (title, members) in zip(axes, GROUPS.items()):
             for ref in [r for r in (BASE, "scratch") if r in curves]:
                 col, ls = REF_STYLE[ref]
@@ -336,14 +421,14 @@ def main():
                     col, ls = color_of(cond)
                     band(ax, x, np.array([c["return"] for c in curves[cond].values()]), col, ls, cond)
             ax.axvline(S, color="#8a8983", lw=0.8, ls="--")
-            ax.axhline(0.8 * tgt_fix, color="#8a8983", lw=0.8, ls=":")
-            ax.set_xlim(S - 500_000, N)
+            ax.axhline(FLOOR + 0.8 * (tgt_fix - FLOOR), color="#8a8983", lw=0.8, ls=":")
+            ax.set_xlim(S - u(500_000), N)
             ax.set_title(title, fontsize=11)
             ax.set_xlabel("steps")
             ax.legend(fontsize=8, frameon=False)
             style(ax)
-        axes[0].set_ylabel(f"return ({WIN // 1000}k window, mean ± SE over seeds)")
-        fig.suptitle(f"{env} {shift}: recovery after the switch at {fmt_steps(S)} (dotted: 80% of fix asymptote)", fontsize=12)
+        axes[0].set_ylabel(f"return ({ulabel(50_000)} window, mean ± SE over seeds)")
+        fig.suptitle(f"{env} {shift}: recovery after the switch at {fmt_steps(S)} (dotted: 80% of {BASE} asymptote)", fontsize=12)
         fig.tight_layout()
         fig.savefig(os.path.join(args.out, f"curves_{env}_{shift}.png"), dpi=140)
         plt.close(fig)
@@ -352,10 +437,10 @@ def main():
         conds_plot = [c for c in ORDER if c in conds] + (["scratch"] if "scratch" in conds else [])
         fig, axes = plt.subplots(1, 2, figsize=(14, 0.42 * len(conds_plot) + 1.5), sharey=True)
         yl = np.arange(len(conds_plot))
-        for ax, k, label in zip(axes, ("t80_fix", "early_1M"), ("steps after switch to reach 80% of fix asymptote", "mean return, first 1M steps after switch")):
+        for ax, k, label in zip(axes, ("t80_fix", "early_1M"), (f"steps after switch to reach 80% of {BASE} asymptote", f"mean return, first {ulabel(1_000_000)} steps after switch")):
             fv = [metrics[BASE][s][k] for s in metrics[BASE]]
             ax.axvspan(np.mean(fv) - np.std(fv, ddof=1) / np.sqrt(len(fv)), np.mean(fv) + np.std(fv, ddof=1) / np.sqrt(len(fv)), color="#0b0b0b", alpha=0.08, lw=0)
-            ax.axvline(np.mean(fv), color="#0b0b0b", lw=1.2, label="fix (mean ± SE)")
+            ax.axvline(np.mean(fv), color="#0b0b0b", lw=1.2, label=f"{BASE} (mean ± SE)")
             for yi, cond in zip(yl, conds_plot):
                 col, _ = color_of(cond)
                 vals = np.array([metrics[cond][s][k] for s in metrics[cond]])
@@ -378,7 +463,7 @@ def main():
 
         # mechanism panels: what the switch does to the policy and critic, per lever group
         mech = ["ep_len", "entropy", "actor_grad_norm", "critic_loss"]
-        fig, axes = plt.subplots(len(mech), len(GROUPS), figsize=(6 * len(GROUPS), 3.2 * len(mech)), sharex=True)
+        fig, axes = plt.subplots(len(mech), len(GROUPS), figsize=(max(9, 6 * len(GROUPS)), 3.2 * len(mech)), sharex=True, squeeze=False)
         for j, (title, members) in enumerate(GROUPS.items()):
             for i, k in enumerate(mech):
                 ax = axes[i, j]
@@ -388,7 +473,7 @@ def main():
                     if cond in curves:
                         band(ax, x, np.array([c[k] for c in curves[cond].values()]), *color_of(cond), cond)
                 ax.axvline(S, color="#8a8983", lw=0.8, ls="--")
-                ax.set_xlim(S - 300_000, min(N, S + 2_000_000))
+                ax.set_xlim(S - u(300_000), min(N, S + u(2_000_000)))
                 if k in LOGY:
                     ax.set_yscale("log")
                 if j == 0:
@@ -397,7 +482,7 @@ def main():
                     ax.set_title(title, fontsize=11)
                 style(ax)
             axes[0, j].legend(fontsize=7, frameon=False, ncol=2)
-        fig.suptitle(f"{env} {shift}: policy and critic diagnostics through the switch ({WIN // 1000}k window, mean ± SE)", fontsize=12)
+        fig.suptitle(f"{env} {shift}: policy and critic diagnostics through the switch ({ulabel(50_000)} window, mean ± SE)", fontsize=12)
         fig.tight_layout()
         fig.savefig(os.path.join(args.out, f"mechanism_{env}_{shift}.png"), dpi=130)
         plt.close(fig)
@@ -407,7 +492,7 @@ def main():
         ddir = os.path.join(args.out, "diag", f"{env}_{shift}")
         os.makedirs(ddir, exist_ok=True)
         for cond in conds:
-            if cond == BASE:
+            if cond == BASE or args.no_diag:
                 continue
             fig, axes = plt.subplots(4, 4, figsize=(18, 12))
             for ax, k in zip(axes.flat, DIAG):
@@ -418,13 +503,13 @@ def main():
                 if cond.endswith("scratch") or k in next(iter(curves[cond].values())):
                     band(ax, x, np.array([c[k] for c in curves[cond].values()]), *color_of(cond), cond)
                 ax.axvline(S, color="#8a8983", lw=0.8, ls="--")
-                ax.set_xlim(S - 500_000, min(N, S + 3_000_000))
+                ax.set_xlim(S - u(500_000), min(N, S + u(3_000_000)))
                 if k in LOGY:
                     ax.set_yscale("log")
                 ax.set_title(k, fontsize=10)
                 style(ax)
             axes.flat[0].legend(fontsize=8, frameon=False)
-            fig.suptitle(f"{env} {shift}: {cond} vs fix around the switch ({WIN // 1000}k window, mean ± SE)", fontsize=12)
+            fig.suptitle(f"{env} {shift}: {cond} vs {BASE} around the switch ({ulabel(50_000)} window, mean ± SE)", fontsize=12)
             fig.tight_layout()
             fig.savefig(os.path.join(ddir, f"{cond}.png"), dpi=120)
             plt.close(fig)
@@ -471,12 +556,19 @@ def main():
         w.writerows(summary)
     with open(os.path.join(args.out, "summary.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(md) + "\n")
+    for name, rows_out in (("classes.csv", classes), ("baseline.csv", baseline)):
+        if rows_out:
+            with open(os.path.join(args.out, name), "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=list(rows_out[0].keys()))
+                w.writeheader()
+                w.writerows(rows_out)
 
     # the G-reset fix itself: legacy vs fix over the whole run, with the scaler statistics it changes
     pairs = sorted(k for k in heat["early_1M"])
     gk = ["return", "td_sigma", "scaler_G2_mean", "scaler_G_count"]
-    fig, axes = plt.subplots(len(gk), len(pairs), figsize=(3.6 * len(pairs), 2.8 * len(gk)))
-    for j, pr in enumerate(pairs):
+    both = BASE != "legacy" and any("legacy" in gfix[pr] for pr in pairs)
+    fig, axes = plt.subplots(len(gk), len(pairs), figsize=(3.6 * len(pairs), 2.8 * len(gk)), squeeze=False)
+    for j, pr in enumerate(pairs if both else []):
         for i, k in enumerate(gk):
             ax = axes[i, j]
             for ref in ("legacy", BASE):
@@ -494,16 +586,17 @@ def main():
             style(ax)
     axes[0, 0].legend(fontsize=8, frameon=False)
     fig.suptitle("Effect of resetting G on truncation (fix) vs the original code (legacy), whole run, mean ± SE over 5 seeds", fontsize=11)
-    fig.tight_layout()
-    fig.savefig(os.path.join(args.out, "gfix_legacy_vs_fix.png"), dpi=130)
+    if both:
+        fig.tight_layout()
+        fig.savefig(os.path.join(args.out, "gfix_legacy_vs_fix.png"), dpi=130)
     plt.close(fig)
 
     # heatmaps: change vs fix across all env/shift pairs
     cmap = LinearSegmentedColormap.from_list("div", ["#eb6834", "#d9d8d3", "#2a78d6"])
     specs = {
-        "early_1M": (f"mean return over the first 1M post-switch steps: % change vs {BASE} (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 50),
-        "t80_fix": (f"steps to 80% of the {BASE} asymptote: % of horizon saved vs {BASE} (blue = faster)", lambda r, H: -100 * r["diff"] / H, 30),
-        "asym": (f"post-shift asymptote (last 1M steps): % change vs {BASE} (blue = better)", lambda r, H: 100 * r["diff"] / abs(r["fix_mean"]), 30),
+        "early_1M": (f"mean return over the first {ulabel(1_000_000)} post-switch steps: % change vs {BASE} (blue = better)", lambda r, H, fl: 100 * r["diff"] / abs(r["fix_mean"] - fl), 50),
+        "t80_fix": (f"steps to 80% of the {BASE} asymptote: % of horizon saved vs {BASE} (blue = faster)", lambda r, H, fl: -100 * r["diff"] / H, 30),
+        "asym": (f"post-shift asymptote (last {ulabel(1_000_000)} steps): % change vs {BASE} (blue = better)", lambda r, H, fl: 100 * r["diff"] / abs(r["fix_mean"] - fl), 30),
     }
     conds_heat = [c for c in ORDER if c != "legacy"] + (["legacy"] if "legacy" in ORDER else []) + (["scratch"] if any("scratch" in heat["early_1M"][pr] for pr in pairs) else [])
     for k, (title, fn, vmax) in specs.items():
@@ -513,7 +606,7 @@ def main():
             for i, c in enumerate(conds_heat):
                 r = heat[k][pr].get(c)
                 if r and np.isfinite(r["diff"]):
-                    M[i, j] = fn(r, heat["H"][pr])
+                    M[i, j] = fn(r, heat["H"][pr], heat["floor"][pr])
                     txt[i][j] = f"{M[i, j]:+.0f}%\n{r['wins']}/{r['n_pairs']}{r['sig']}"
         fig, ax = plt.subplots(figsize=(2.1 * len(pairs) + 3, 0.5 * len(conds_heat) + 1.8))
         im = ax.imshow(M, cmap=cmap, norm=TwoSlopeNorm(0, -vmax, vmax), aspect="auto")
@@ -528,8 +621,8 @@ def main():
         for g in list(np.cumsum(sizes)) + [len(conds_heat) - 1]:  # group boundaries and the references
             if 0 < g < len(conds_heat):
                 ax.axhline(g - 0.5, color="white", lw=2)
-        fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02, label="% vs fix")
-        ax.set_title(title + "\ncell text: value, seeds where lever beat fix, paired t-test", fontsize=10)
+        fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02, label=f"% vs {BASE}")
+        ax.set_title(title + f"\ncell text: value, seeds where lever beat {BASE}, paired t-test", fontsize=10)
         fig.tight_layout()
         fig.savefig(os.path.join(args.out, f"heatmap_{k}.png"), dpi=140)
         plt.close(fig)
