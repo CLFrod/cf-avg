@@ -22,7 +22,7 @@ case "$PY" in /cvmfs/*) ;; *) echo "ERROR: expected the python/3.13 module's int
 # uv itself: a user-space binary in ~/.local/bin (login nodes have internet)
 if ! command -v uv &>/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    source "$HOME/.local/bin/env"
+    export PATH="$HOME/.local/bin:$PATH"
 fi
 echo "uv $(uv --version)"
 
