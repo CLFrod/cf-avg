@@ -1,4 +1,4 @@
-"""Critic eligibility trace study: writes configs/traces/traces_<env>_<shift>.json for every environment of the
+"""Critic eligibility trace study: writes configs/traces_2026-11-26/traces_<env>_<shift>.json for every environment of the
 shift study. Each config fits one Trillium node.
 
     python scripts/configs/make_trace_configs.py [--env Hopper-v4 ...] [--lambdas 0 0.5 0.8 0.9] [--lr_mults 1 0.5 0.25 0.125]
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     p.add_argument("--lambdas", nargs="*", type=float, default=[0, 0.5, 0.8, 0.9])
     p.add_argument("--lr_mults", nargs="*", type=float, default=[1, 0.5, 0.25, 0.125], help="Multiples of the tuned critic_lr")
     p.add_argument("--n_seeds", default=5, type=int, help=f"1..{len(SEEDS)}")
-    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "traces"))
+    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "traces_2026-11-26"))
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
     total = 0

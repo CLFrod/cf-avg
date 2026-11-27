@@ -1,4 +1,4 @@
-"""Shift study: writes configs/shift_study/study_<env>_core.json and study_<env>_body.json for every environment
+"""Shift study: writes configs/shift_study_2026-11-26/study_<env>_core.json and study_<env>_body.json for every environment
 with tuned hyperparameters. Each config fills one Trillium node.
 
     python scripts/configs/make_shift_study_configs.py [--env Hopper-v4 ...] [--n_seeds 5]
@@ -210,7 +210,7 @@ if __name__ == "__main__":
     p.add_argument("--env", nargs="*", default=list(ENVS), help="Default: every env in ENVS")
     p.add_argument("--n_seeds", default=5, type=int, help=f"1..{len(SEEDS)}")
     p.add_argument("--smoke", action="store_true", help="Write the smoke versions instead")
-    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "shift_study"))
+    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "shift_study_2026-11-26"))
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)
     for env in args.env:

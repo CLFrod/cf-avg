@@ -1,7 +1,7 @@
 #!/bin/bash
 # Submit the shift study, one job (one node) per config.
-#   bash $HOME/cf-avg/scripts/trillium/submit_study.sh                                              # every configs/shift_study/study_*.json
-#   bash $HOME/cf-avg/scripts/trillium/submit_study.sh configs/shift_study/study_reacher_core.json  # just these
+#   bash $HOME/cf-avg/scripts/trillium/submit_study.sh                                              # every configs/shift_study_2026-11-26/study_*.json
+#   bash $HOME/cf-avg/scripts/trillium/submit_study.sh configs/shift_study_2026-11-26/study_reacher_core.json  # just these
 # Configs come from scripts/configs/make_shift_study_configs.py. Both halves of an environment share
 # $SCRATCH/results_study/<env>/ (the config's name without study_ and _core/_body).
 # HOURS=6 caps the job's walltime at 6 h (default: avg_multi.sh's 24 h); runs checkpoint and stop half an hour before.
@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO"
 CONFIGS=("$@")
 if [ ${#CONFIGS[@]} -eq 0 ]; then
-    for cfg in configs/shift_study/study_*.json; do
+    for cfg in configs/shift_study_2026-11-26/study_*.json; do
         case "$cfg" in *study_smoke_*) ;; *) CONFIGS+=("$cfg") ;; esac
     done
 fi

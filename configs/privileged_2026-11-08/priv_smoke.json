@@ -1,7 +1,7 @@
 {
  "_comment": [
-  "Smoke test of configs/privileged/priv_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
-  "Login node, ~2 min: CONFIG=configs/privileged/priv_smoke.json bash scripts/trillium/smoke_levers.sh"
+  "Smoke test of configs/privileged_2026-11-08/priv_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Login node, ~2 min: CONFIG=configs/privileged_2026-11-08/priv_smoke.json bash scripts/trillium/smoke_levers.sh"
  ],
  "defaults": {
   "N": 3000,

@@ -1,4 +1,4 @@
-"""Writes configs/levers/levers_<env>.json: batch 1 of the on-shift lever study, one config per environment.
+"""Writes configs/levers_2026-11-08/levers_<env>.json: batch 1 of the on-shift lever study, one config per environment.
 
     python scripts/configs/make_lever_configs.py [--stats_root '$SCRATCH']
 
@@ -102,7 +102,7 @@ def config(env, stats_root, smoke=False, legacy=False):
             if "schedule" in e:
                 e["schedule"][0]["step"] = 1500
         cfg["_comment"] = [
-            f"Smoke test of configs/levers/{prefix}_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+            f"Smoke test of configs/levers_2026-11-08/{prefix}_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
             "Login node, ~2 min: bash scripts/trillium/smoke_levers.sh",
         ]
         cfg["defaults"].update(N=3000, seeds=SEEDS[:1], n_eval=1, video_every=1500, dense_window=[500, 1000], checkpoint=1000)
@@ -112,8 +112,8 @@ def config(env, stats_root, smoke=False, legacy=False):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--stats_root", default="$SCRATCH", help=f"Folder holding {R24} and {R18} (the warm-start sources)")
-    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "levers"))
-    p.add_argument("--legacy", action="store_true", help="Write configs/levers/levers_legacy_<env>.json: every run with the old G reset")
+    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "levers_2026-11-08"))
+    p.add_argument("--legacy", action="store_true", help="Write configs/levers_2026-11-08/levers_legacy_<env>.json: every run with the old G reset")
     args = p.parse_args()
     prefix = "levers_legacy" if args.legacy else "levers"
     todo = [(f"{prefix}_{env.split('-')[0].lower()}", env, False) for env in RUN] + [(f"{prefix}_smoke", "Hopper-v4", True)]

@@ -246,10 +246,7 @@ class AVG:
         self.td_error_scaler = TDErrorScaler(*(cfg.td_scaler_cap or (None, None)))
         self.G = 0
         # Critic eligibility trace (TD(lambda)); None = one-step TD
-        self.lam = float(getattr(cfg, "critic_lambda", 0.0))
-        if not 0.0 <= self.lam <= 1.0:
-            raise ValueError(f"critic_lambda must be in [0, 1], got {self.lam}")
-        self.z = [torch.zeros_like(p) for p in self.Q.parameters()] if self.lam > 0 else None
+        self.set_critic_lambda(getattr(cfg, "critic_lambda", 0.0))
         self.last_td_abs = 0.0
         self.last_lprob = 0.0
         self.last_entropy = 0.0
@@ -258,6 +255,13 @@ class AVG:
         self.stats_every = cfg.stats_every
         self.dense = False
         self._reset_episode_stats()
+
+    def set_critic_lambda(self, lam):
+        """Set the critic trace decay and start from an empty trace"""
+        self.lam = float(lam)
+        if not 0.0 <= self.lam <= 1.0:
+            raise ValueError(f"critic_lambda must be in [0, 1], got {self.lam}")
+        self.z = [torch.zeros_like(p) for p in self.Q.parameters()] if self.lam > 0 else None
 
     def to_tensor(self, obs):
         """numpy obs -> (1, obs_dim) float32 tensor; tensors pass through"""

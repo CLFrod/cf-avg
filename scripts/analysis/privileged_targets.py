@@ -1,4 +1,4 @@
-"""Privileged targets for the batch-2 levers, from the batch-1 runs: writes configs/privileged/privileged_targets.json.
+"""Privileged targets for the batch-2 levers, from the batch-1 runs: writes configs/privileged_2026-11-08/privileged_targets.json.
 
     python scripts/analysis/privileged_targets.py [--cache results_trillium/lever_results/analysis/cache]
 
@@ -28,7 +28,7 @@ def entropy(zs, lo, hi):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cache", default="results_trillium/lever_results/analysis/cache")
-    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "privileged", "privileged_targets.json"))
+    p.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "..", "configs", "privileged_2026-11-08", "privileged_targets.json"))
     args = p.parse_args()
     targets = {}
     for env, shifts in SHIFTS.items():

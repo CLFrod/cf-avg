@@ -1,4 +1,4 @@
-"""Random hyperparameter search: writes configs/sweep/sweep_<env>.json, one per env, each filling one Trillium node.
+"""Random hyperparameter search: writes configs/sweep_2026-11-23/sweep_<env>.json, one per env, each filling one Trillium node.
 
     python scripts/sweep/make_sweep_configs.py [--env Walker2d-v4 ...] [--n_configs 60] [--n_seeds 3] [--N 2000000]
     bash scripts/trillium/submit_sweep.sh                                  # one job per config
@@ -7,12 +7,12 @@
 Each experiment h<hyp_seed> is one draw of (actor_lr, critic_lr, beta1, alpha_lr, gamma), sampled exactly as
 incremental_rl/hyp_sweep.py does for that hyp_seed, plus the two README configs (122, 129) as references.
 Standard AVG (obs norm, pnorm, scaled TD), legacy G reset. 62 draws x 3 seeds = 186 runs, one node.
-Second stage, chosen draws rerun longer with more seeds (writes configs/sweep_long/sweep_long_<env>.json):
+Second stage, chosen draws rerun longer with more seeds (writes configs/sweep_long_2026-11-25/sweep_long_<env>.json):
     python scripts/sweep/make_sweep_configs.py --env Walker2d-v4 --hyp_seeds 6 47 10 --N 10000000 --n_seeds 10 --tag long
-Locally: python -m incremental_rl.avg_multi_experiment --config configs/sweep/sweep_<env>.json --results_dir results_sweep/<env> --n_workers 8
+Locally: python -m incremental_rl.avg_multi_experiment --config configs/sweep_2026-11-23/sweep_<env>.json --results_dir results_sweep/<env> --n_workers 8
 """
 
-import argparse, json, os
+import argparse, json, os, datetime
 import numpy as np
 
 # steps per run: long enough to rank draws, not to converge
@@ -61,18 +61,20 @@ if __name__ == "__main__":
         "--hyp_seeds", nargs="*", default=None, type=int, help="Exactly these draws"
     )
     p.add_argument(
-        "--tag", default="", help="Config is sweep_<tag>/sweep_<tag>_<env>.json"
+        "--tag", default="", help="Config is sweep_<tag>_<date>/sweep_<tag>_<env>.json"
     )
     p.add_argument(
         "--N", default=None, type=int, help="Steps per run (default: RUN_N[env])"
     )
     p.add_argument("--n_seeds", default=3, type=int)
-    p.add_argument("--out", default=None, help="Default: configs/sweep[_<tag>]")
+    p.add_argument("--out", default=None, help="Default: configs/sweep[_<tag>]_<date>, the existing folder or one dated today")
     args = p.parse_args()
     tag = f"{args.tag}_" if args.tag else ""
     if args.out is None:
         configs = os.path.join(os.path.dirname(__file__), "..", "..", "configs")
-        args.out = os.path.join(configs, f"sweep_{args.tag}" if args.tag else "sweep")
+        name = f"sweep_{args.tag}" if args.tag else "sweep"
+        dated = sorted(d for d in os.listdir(configs) if d[:-11] == name)
+        args.out = os.path.join(configs, dated[-1] if dated else f"{name}_{datetime.date.today()}")
     os.makedirs(args.out, exist_ok=True)
     hyp_seeds = list(
         range(args.first_hyp_seed, args.first_hyp_seed + args.n_configs)

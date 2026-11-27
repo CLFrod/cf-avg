@@ -1,6 +1,6 @@
 {
  "_comment": [
-  "Smoke test of configs/levers/levers_legacy_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
+  "Smoke test of configs/levers_2026-11-08/levers_<env>.json: every condition once on Hopper gear2x, 3000 steps, switch at 1500.",
   "Login node, ~2 min: bash scripts/trillium/smoke_levers.sh"
  ],
  "defaults": {
@@ -44,11 +44,21 @@
    "legacy_g_reset": true
   },
   {
+   "name": "fix-gear2x",
+   "schedule": [
+    {
+     "step": 1500,
+     "mods": {
+      "gear_scale": 2.0
+     }
+    }
+   ]
+  },
+  {
    "name": "scratch-gear2x",
    "env_mods": {
     "gear_scale": 2.0
-   },
-   "legacy_g_reset": true
+   }
   },
   {
    "name": "L02_shrink_obs-gear2x",
@@ -65,8 +75,7 @@
      "action": "shrink_obs_norm",
      "count": 1000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L02_hard_obs-gear2x",
@@ -83,8 +92,7 @@
      "action": "shrink_obs_norm",
      "count": 0
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L03_cap_obs-gear2x",
@@ -96,8 +104,7 @@
      }
     }
    ],
-   "obs_norm_cap": 100000,
-   "legacy_g_reset": true
+   "obs_norm_cap": 100000
   },
   {
    "name": "L04_shrink_scaler-gear2x",
@@ -115,8 +122,7 @@
      "steps": 1000,
      "episodes": 10
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L05_cap_scaler-gear2x",
@@ -131,8 +137,7 @@
    "td_scaler_cap": [
     100000,
     100
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L06_warm_start-gear2x",
@@ -150,8 +155,7 @@
      "path": "$SCRATCH/results_24M_10_26_2026/gear2x-Hopper-v4-18606-*/*_model_3M.pt",
      "scaler_path": "$SCRATCH/results_24M_10_26_2026/gear2x-Hopper-v4-18606-*/checkpoint.pt"
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L07_reset_adam-gear2x",
@@ -168,8 +172,7 @@
      "action": "reset_adam",
      "net": "both"
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L08_critic_x3-gear2x",
@@ -188,8 +191,7 @@
      "k": 3,
      "steps": 200000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L08_critic_x10-gear2x",
@@ -208,8 +210,7 @@
      "k": 10,
      "steps": 200000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L09_actor_freeze-gear2x",
@@ -229,8 +230,7 @@
      "steps": 50000,
      "mode": "hold"
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L10_actor_delayed-gear2x",
@@ -250,8 +250,7 @@
      "steps": 200000,
      "delay": 50000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L11_adaptive-gear2x",
@@ -267,8 +266,7 @@
     1000,
     100000,
     10
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "L12_beta2-gear2x",
@@ -286,8 +284,7 @@
      "beta2": 0.99,
      "steps": 200000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "S01_stats_stack-gear2x",
@@ -313,8 +310,7 @@
      "action": "reset_adam",
      "net": "both"
     }
-   ],
-   "legacy_g_reset": true
+   ]
   },
   {
    "name": "S02_sink-gear2x",
@@ -358,8 +354,7 @@
      "beta2": 0.99,
      "steps": 200000
     }
-   ],
-   "legacy_g_reset": true
+   ]
   }
  ]
 }

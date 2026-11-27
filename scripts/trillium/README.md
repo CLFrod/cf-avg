@@ -11,8 +11,8 @@ runs **188 runs at once, one pinned core each** (4 cores reserved for the launch
 | `smoke_test.sh` | ~1 min login-node check of the whole pipeline (rendering, config, runs, resume) |
 | `submit.sh` | submit the job (from anywhere; puts the job directory on scratch) |
 | `avg_multi.sh` | the Slurm job script: loads modules, checks rendering, launches the experiment |
-| `submit_sweep.sh` | submit hyperparameter sweeps, one job per `configs/sweep/sweep_*.json` |
-| `submit_study.sh` | submit the shift study, one job per `configs/shift_study/study_*.json` |
+| `submit_sweep.sh` | submit hyperparameter sweeps, one job per `configs/sweep_2026-11-23/sweep_*.json` |
+| `submit_study.sh` | submit the shift study, one job per `configs/shift_study_2026-11-26/study_*.json` |
 
 ## 1. Setup (login node, once)
 
@@ -39,7 +39,7 @@ run per env (Hopper / Ant / Humanoid) through a physics + termination switch wit
 ## 3. Submit
 
 ```bash
-bash scripts/trillium/submit.sh        # runs configs/dynamics_shifts/trillium_dynamics_3env_24m.json
+bash scripts/trillium/submit.sh        # runs configs/dynamics_shifts_2026-10-24/trillium_dynamics_3env_24m.json
 ```
 
 `submit.sh` is `sbatch --chdir=$SCRATCH/avg_jobs avg_multi.sh`, so Slurm's log lands in
@@ -56,8 +56,8 @@ Other experiments: `--export=ALL,CONFIG=<file>`; the options are listed in the h
 ### Hyperparameter sweeps
 
 ```bash
-python scripts/sweep/make_sweep_configs.py             # writes configs/sweep/sweep_<env>.json (62 draws x 3 seeds each)
-python -m incremental_rl.avg_multi_experiment --config configs/sweep/sweep_dmc-finger-spin.json --dry_run   # login-node check
+python scripts/sweep/make_sweep_configs.py             # writes configs/sweep_2026-11-23/sweep_<env>.json (62 draws x 3 seeds each)
+python -m incremental_rl.avg_multi_experiment --config configs/sweep_2026-11-23/sweep_dmc-finger-spin.json --dry_run   # login-node check
 bash scripts/trillium/submit_sweep.sh                  # one job per config, results in $SCRATCH/results_sweep/<env>/
 python scripts/sweep/sweep_summary.py --root $SCRATCH/results_sweep --top 5
 ```

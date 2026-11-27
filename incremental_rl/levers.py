@@ -6,7 +6,7 @@ from incremental_rl import checkpoint as ckpt
 from incremental_rl import layout
 
 ACTIONS = ("shrink_obs_norm", "shrink_td_scaler", "load_stats", "reset_adam", "lr_boost", "set_beta2",
-           "set_alpha", "alpha_track", "reward_offset")
+           "set_alpha", "alpha_track", "reward_offset", "set_critic_lambda")
 
 
 class CappedNormalizeObservation(NormalizeObservation):
@@ -119,6 +119,10 @@ class Levers:
 
     def act_reward_offset(self, a):
         pass  # schedule, read in reward_offset()
+
+    def act_set_critic_lambda(self, a):
+        """Critic eligibility trace from this switch on, starting from an empty trace (lam 0 turns it off)"""
+        self.agent.set_critic_lambda(a["lam"])
 
     def reward_offset(self, t):
         """Constant added to the reward the agent learns from at step t (decays to 0 over `steps`); the logged return is unchanged"""

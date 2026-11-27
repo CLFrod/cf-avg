@@ -10,10 +10,10 @@ Single experiment from the command line:
     python -m incremental_rl.avg_multi_experiment --n_runs 10 --name moon_earth \\
         --env Hopper-v4 --N 1000000 --actor_lr 0.0003 --alpha_lr 0.1 --normalize_obs --pnorm --scaled_td
 
-Several experiments from a JSON/YAML config (see configs/dynamics_shifts/trillium_dynamics_3env_24m.json; trillium_jobtest.json is a
+Several experiments from a JSON/YAML config (see configs/dynamics_shifts_2026-10-24/trillium_dynamics_3env_24m.json; trillium_jobtest.json is a
 small template):
-    python -m incremental_rl.avg_multi_experiment --config configs/dynamics_shifts/trillium_dynamics_3env_24m.json --dry_run
-    python -m incremental_rl.avg_multi_experiment --config configs/dynamics_shifts/trillium_jobtest.json --N 2000 --do_not_save
+    python -m incremental_rl.avg_multi_experiment --config configs/dynamics_shifts_2026-10-24/trillium_dynamics_3env_24m.json --dry_run
+    python -m incremental_rl.avg_multi_experiment --config configs/dynamics_shifts_2026-10-24/trillium_jobtest.json --N 2000 --do_not_save
 
 Config layout: `defaults` (any avg_ablation argument, plus `n_runs`/`seeds`) and a list of `experiments`,
 each with a unique `name`, an `env`, and any arguments that differ from the defaults. Precedence, lowest to
